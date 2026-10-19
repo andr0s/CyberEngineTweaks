@@ -6,7 +6,8 @@
 	url = https://github.com/diegonehab/luasocket.git
 [submodule "vendor/RED4ext.SDK-macos"]
 	path = vendor/RED4ext.SDK-macos
-	url = https://github.com/jackmaxwil/RED4ext.SDK-macos.git
+	url = https://github.com/andr0s/RED4ext.SDK-macos.git
+	branch = macos-fixes
 [submodule "vendor/luajit"]
 	path = vendor/luajit
 	url = https://github.com/openresty/luajit2.git
