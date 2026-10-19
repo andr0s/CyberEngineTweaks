@@ -17,11 +17,11 @@ static void Expect(const bool aCondition, const char* aWhat)
 
 int main()
 {
-    const std::string samples[] = {"plain ascii", "Привет, Найт-Сити", "日本語のテキスト", "emoji \xF0\x9F\x98\x80 end", ""};
+    const std::string samples[] = {"plain ascii", "Grüße aus Night City", "日本語のテキスト", "emoji \xF0\x9F\x98\x80 end", ""};
     for (const auto& sample : samples)
         Expect(Utf::FromWide(Utf::ToWide(sample)) == sample, ("round trip: " + sample).c_str());
 
-    Expect(Utf::ToWide("\xD0\x9F") == std::wstring(1, L'П'), "2-byte sequence");
+    Expect(Utf::ToWide("\xC3\xBC") == std::wstring(1, L'\u00FC'), "2-byte sequence");
     Expect(Utf::ToWide("\xF0\x9F\x98\x80") == std::wstring(1, static_cast<wchar_t>(0x1F600)), "4-byte sequence");
     Expect(Utf::ToWide("\xC0\xAF") == std::wstring(2, static_cast<wchar_t>(0xFFFD)), "overlong '/' rejected");
     Expect(Utf::ToWide("\xED\xA0\x80") == std::wstring(3, static_cast<wchar_t>(0xFFFD)), "encoded surrogate rejected");
