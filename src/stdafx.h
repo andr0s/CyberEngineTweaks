@@ -1,13 +1,20 @@
 #pragma once
 
+#ifdef __APPLE__
+#include "platform/macos/WinCompat.h"
+#include "platform/macos/Platform.h"
+#endif
+
 #include "reverse/Relocation.h"
 
 #include <sol/sol.hpp>
 #include <spdlog/spdlog.h>
 #include <imgui.h>
+#ifdef _WIN32
 #include <MinHook.h>
 #include <mem/module.h>
 #include <mem/pattern.h>
+#endif
 #include <nlohmann/json.hpp>
 
 #include <RED4ext/CName.hpp>
@@ -28,6 +35,9 @@
 #include <RED4ext/Scripting/Stack.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 #include <RED4ext/TweakDB.hpp>
+#ifdef __APPLE__
+#include "platform/macos/SdkCompat.h"
+#endif
 
 #include <TiltedCore/Allocator.hpp>
 #include <TiltedCore/Lockable.hpp>
@@ -37,6 +47,7 @@
 #include <TiltedCore/StackAllocator.hpp>
 #include <TiltedCore/TaskQueue.hpp>
 
+#ifdef _WIN32
 #include <tchar.h>
 #include <d3d12.h>
 #include <d3d11.h>
@@ -47,6 +58,9 @@
 #include <SDKDDKVer.h>
 #include <Windows.h>
 #include <wrl.h>
+#else
+#include "platform/macos/Hooking.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -68,6 +82,7 @@
 #include <vector>
 
 #include "common/Logging.h"
+#include "common/RedCompat.h"
 #include "common/FontMaterialDesignIcons.h"
 #include "common/ImGuiNotify.h"
 #include "Options.h"

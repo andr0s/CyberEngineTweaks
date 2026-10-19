@@ -18,14 +18,21 @@ struct Window
 
     bool IsInitialized() const { return m_initialized; }
 
+#ifdef __APPLE__
+    // The game's NSWindow, reported by the input layer once the game has created it, and its frame in points.
+    void SetMacWindow(HWND apWindow, POINT aPos, SIZE aSize, SIZE aClientSize);
+#else
 protected:
     static LRESULT APIENTRY WndProc(HWND ahWnd, UINT auMsg, WPARAM awParam, LPARAM alParam);
+#endif
 
 private:
     bool m_initialized{false};
 
     HWND m_hWnd{nullptr};
+#ifndef __APPLE__
     WNDPROC m_wndProc{nullptr};
+#endif
 
     POINT m_wndPos{};
     SIZE m_wndSize{};

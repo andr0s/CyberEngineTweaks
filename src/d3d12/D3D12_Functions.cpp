@@ -5,10 +5,14 @@
 #include "Utils.h"
 
 #include <CET.h>
+#ifdef _WIN32
 #include <imgui_impl/dx12.h>
 #include <imgui_impl/win32.h>
 #include <window/window.h>
+#endif
 
+// On macOS only ReloadFonts() and PrepareUpdate() come from this file; the Metal side is in D3D12_Metal.mm.
+#ifdef _WIN32
 bool D3D12::ResetState(const bool acDestroyContext)
 {
     if (m_initialized)
@@ -140,6 +144,7 @@ bool D3D12::Initialize()
 
     return true;
 }
+#endif
 
 void D3D12::ReloadFonts()
 {
@@ -218,6 +223,46 @@ void D3D12::ReloadFonts()
     }
     else
     {
+#ifdef __APPLE__
+        // first preferred UI language, e.g. "zh-Hant-TW", "ja-JP", "ru-RU"
+        const auto language = Platform::GetPreferredLanguage();
+        const auto startsWith = [&language](const char* acpPrefix) { return language.rfind(acpPrefix, 0) == 0; };
+        if (startsWith("zh-Hant") || startsWith("zh-TW") || startsWith("zh-HK") || startsWith("zh-MO"))
+        {
+            cetFontPath = GetAbsolutePath(L"NotoSansTC-Regular.otf", m_paths.Fonts(), false);
+            cpGlyphRanges = io.Fonts->GetGlyphRangesChineseFull();
+        }
+        else if (startsWith("zh"))
+        {
+            cetFontPath = GetAbsolutePath(m_paths.Fonts() / L"NotoSansSC-Regular.otf", m_paths.Fonts(), false);
+            cpGlyphRanges = io.Fonts->GetGlyphRangesChineseSimplifiedCommon();
+        }
+        else if (startsWith("ja"))
+        {
+            cetFontPath = GetAbsolutePath(m_paths.Fonts() / L"NotoSansJP-Regular.otf", m_paths.Fonts(), false);
+            cpGlyphRanges = io.Fonts->GetGlyphRangesJapanese();
+        }
+        else if (startsWith("ko"))
+        {
+            cetFontPath = GetAbsolutePath(m_paths.Fonts() / L"NotoSansKR-Regular.otf", m_paths.Fonts(), false);
+            cpGlyphRanges = io.Fonts->GetGlyphRangesKorean();
+        }
+        else if (startsWith("ru") || startsWith("be") || startsWith("uk"))
+        {
+            cetFontPath = GetAbsolutePath(m_paths.Fonts() / L"NotoSans-Regular.ttf", m_paths.Fonts(), false);
+            cpGlyphRanges = io.Fonts->GetGlyphRangesCyrillic();
+        }
+        else if (startsWith("th"))
+        {
+            cetFontPath = GetAbsolutePath(m_paths.Fonts() / L"NotoSansThai-Regular.ttf", m_paths.Fonts(), false);
+            cpGlyphRanges = io.Fonts->GetGlyphRangesThai();
+        }
+        else if (startsWith("vi"))
+        {
+            cetFontPath = GetAbsolutePath(m_paths.Fonts() / L"NotoSans-Regular.ttf", m_paths.Fonts(), false);
+            cpGlyphRanges = io.Fonts->GetGlyphRangesVietnamese();
+        }
+#else
         switch (GetSystemDefaultLangID())
         {
         case MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL):
@@ -256,6 +301,7 @@ void D3D12::ReloadFonts()
             cpGlyphRanges = io.Fonts->GetGlyphRangesVietnamese();
             break;
         }
+#endif
     }
 
     // add extra glyphs from language font
@@ -283,6 +329,7 @@ void D3D12::ReloadFonts()
     io.Fonts->AddFontFromFileTTF(UTF16ToUTF8(cetIconPath.native()).c_str(), config.SizePixels, &config, icon_ranges);
 }
 
+#ifdef _WIN32
 bool D3D12::InitializeImGui(size_t aBuffersCounts)
 {
     std::lock_guard _(m_imguiLock);
@@ -342,6 +389,7 @@ bool D3D12::InitializeImGui(size_t aBuffersCounts)
 
     return true;
 }
+#endif
 
 void D3D12::PrepareUpdate()
 {
@@ -350,7 +398,11 @@ void D3D12::PrepareUpdate()
 
     std::lock_guard _(m_imguiLock);
 
+#ifdef __APPLE__
+    NewPlatformFrame();
+#else
     ImGui_ImplWin32_NewFrame(m_outSize);
+#endif
     ImGui::NewFrame();
 
     CET::Get().GetOverlay().Update();
@@ -377,6 +429,7 @@ void D3D12::PrepareUpdate()
     std::swap(m_imguiDrawDataBuffers[1], m_imguiDrawDataBuffers[2]);
 }
 
+#ifdef _WIN32
 void D3D12::Update()
 {
     // swap staging ImGui buffer with render ImGui buffer
@@ -422,3 +475,4 @@ void D3D12::Update()
     ID3D12CommandList* commandLists[] = {frameContext.CommandList.Get()};
     m_pCommandQueue->ExecuteCommandLists(1, commandLists);
 }
+#endif
