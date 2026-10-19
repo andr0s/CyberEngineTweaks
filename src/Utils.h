@@ -10,6 +10,10 @@ void trim(std::string& s);
 
 std::string UTF16ToUTF8(std::wstring_view utf16);
 std::wstring UTF8ToUTF16(std::string_view utf8);
+#ifdef __APPLE__
+// macOS paths are UTF-8 (path::native() is std::string), so CET's UTF16ToUTF8(path.native()) calls are a copy there.
+std::string UTF16ToUTF8(std::string_view utf8);
+#endif
 
 spdlog::sink_ptr CreateCustomSinkST(const std::function<void(const std::string&)>& acpSinkItHandler, const std::function<void()>& acpFlushHandler = nullptr);
 spdlog::sink_ptr CreateCustomSinkMT(const std::function<void(const std::string&)>& acpSinkItHandler, const std::function<void()>& acpFlushHandler = nullptr);
@@ -35,7 +39,7 @@ template <typename F> sol::function MakeSolFunction(sol::state& aState, F aFunc)
 
     aState[s_cTempFuncName] = aFunc;
     sol::function luaFunc = aState[s_cTempFuncName];
-    aState[s_cTempFuncName] = sol::nil;
+    aState[s_cTempFuncName] = sol::lua_nil;
 
     return luaFunc;
 }

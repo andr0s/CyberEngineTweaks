@@ -1,5 +1,12 @@
 #include <stdafx.h>
 
+#ifdef __APPLE__
+// libc++ has no parallel algorithms; these run sequentially on macOS
+#define CET_PAR_UNSEQ
+#else
+#define CET_PAR_UNSEQ std::execution::par_unseq,
+#endif
+
 #include "TweakDBEditor.h"
 
 #include <CET.h>
@@ -232,7 +239,7 @@ void TweakDBEditor::RefreshRecords()
             const auto typeName = acpRTTIType->GetName();
             auto& groupRecords = m_cachedRecords.emplace_back(typeName).m_records;
 
-            groupRecords.reserve(groupRecords.size() + aRecords.size);
+            groupRecords.reserve(groupRecords.size() + RedSize(aRecords));
             for (auto& handle : aRecords)
             {
                 const auto* record = reinterpret_cast<RED4ext::gamedataTweakDBRecord*>(handle.GetPtr());
@@ -359,7 +366,7 @@ void TweakDBEditor::FilterRecords(bool aFilterTab, bool aFilterDropdown)
     {
         bool anyRecordsVisible = false;
         std::for_each(
-            std::execution::par_unseq, group.m_records.begin(), group.m_records.end(),
+            CET_PAR_UNSEQ group.m_records.begin(), group.m_records.end(),
             [&](CachedRecord& record)
             {
                 if (aFilterTab)
@@ -1140,7 +1147,7 @@ bool TweakDBEditor::DrawFlatResourceAsyncRef(RED4ext::TweakDBID aDBID, RED4ext::
                 {
                     auto& resources = ResourcesList::Get()->GetResources();
                     resourcesCount = static_cast<int>(std::count_if(
-                        std::execution::par_unseq, resources.begin(), resources.end(),
+                        CET_PAR_UNSEQ resources.begin(), resources.end(),
                         [](ResourcesList::Resource& resource)
                         {
                             if (comboSearchStr[0] == '\0' || StringContains(resource.m_name, comboSearchStr))

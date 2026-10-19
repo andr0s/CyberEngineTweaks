@@ -20,6 +20,9 @@ struct CET
     const Options& GetOptions() const noexcept;
     const PersistentState& GetPersistentState() const noexcept;
     D3D12& GetD3D12() noexcept;
+#ifdef __APPLE__
+    Window& GetWindow() noexcept;
+#endif
     VKBindings& GetBindings() noexcept;
     Overlay& GetOverlay() noexcept;
     LuaVM& GetVM() noexcept;

@@ -23,6 +23,55 @@ void GameMainThread::RepeatedTaskQueue::Drain()
             ++taskIt;
     }
 }
+bool GameMainThread::RepeatedTaskQueue::Empty()
+{
+    std::lock_guard lock(m_mutex);
+    return m_tasks.empty();
+}
+
+#ifdef __APPLE__
+GameMainThread& GameMainThread::Get()
+{
+    static GameMainThread s_gameMainThread;
+
+    return s_gameMainThread;
+}
+
+void GameMainThread::AddBaseInitializationTask(const std::function<bool()>& aFunction)
+{
+    m_stateTasks[static_cast<size_t>(RED4ext::EGameStateType::BaseInitialization)].AddTask(aFunction);
+}
+
+void GameMainThread::AddInitializationTask(const std::function<bool()>& aFunction)
+{
+    m_stateTasks[static_cast<size_t>(RED4ext::EGameStateType::Initialization)].AddTask(aFunction);
+}
+
+void GameMainThread::AddRunningTask(const std::function<bool()>& aFunction)
+{
+    m_stateTasks[static_cast<size_t>(RED4ext::EGameStateType::Running)].AddTask(aFunction);
+}
+
+void GameMainThread::AddShutdownTask(const std::function<bool()>& aFunction)
+{
+    m_stateTasks[static_cast<size_t>(RED4ext::EGameStateType::Shutdown)].AddTask(aFunction);
+}
+
+void GameMainThread::AddGenericTask(const std::function<bool()>& aFunction)
+{
+    m_genericQueue.AddTask(aFunction);
+}
+
+bool GameMainThread::DrainState(RED4ext::EGameStateType aState)
+{
+    // same order as the Windows state tick hook: generic tasks first, then the state's own tasks
+    m_genericQueue.Drain();
+
+    auto& tasks = m_stateTasks[static_cast<size_t>(aState)];
+    tasks.Drain();
+    return tasks.Empty();
+}
+#else
 GameMainThread::StateTickOverride::StateTickOverride(uint32_t aHash, const char* acpRealFunctionName)
 {
     const RED4ext::UniversalRelocPtr<uint8_t> func(aHash);
@@ -101,3 +150,4 @@ bool GameMainThread::HookStateTick(RED4ext::IGameState* apThisState, RED4ext::CG
     const auto cStateIndex = static_cast<size_t>(apThisState->GetType());
     return gmt.m_stateTickOverrides[cStateIndex].OnTick(apThisState, apGameApplication);
 }
+#endif

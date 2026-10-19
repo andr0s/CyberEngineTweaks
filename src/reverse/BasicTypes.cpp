@@ -71,6 +71,13 @@ void CName::Add(const std::string& aName)
     RED4ext::CNamePool::Add(aName.c_str());
 }
 
+#ifdef __APPLE__
+void RememberTweakDBIDName(const TweakDBID& acId, uint64_t aBase, const std::string& acName)
+{
+    CET::Get().GetVM().RegisterTDBIDString(acId.value, aBase, acName);
+}
+#endif
+
 std::string TweakDBID::AsString() const noexcept
 {
     return CET::Get().GetVM().GetTDBIDString(value);

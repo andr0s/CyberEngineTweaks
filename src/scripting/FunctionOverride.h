@@ -25,7 +25,14 @@ struct FunctionOverride
     FunctionOverride(Scripting* apScripting);
     ~FunctionOverride();
 
+#ifdef __APPLE__
+    // Must run before the game loads its scripts (CET does it at plugin load), see FunctionOverride.cpp.
+    static void HookFunctionAllocator();
+
+    template <size_t N> static void OverrideThunk(RED4ext::IScriptable* apContext, RED4ext::CStackFrame* apFrame, void* apOut, int64_t a4);
+#else
     void* MakeExecutable(const uint8_t* apData, size_t aSize);
+#endif
     void Refresh();
     void Clear();
 
@@ -71,9 +78,11 @@ private:
         RED4ext::CClass* apClassType, RED4ext::CClassFunction* apRealFunction, const std::string& acFullName, sol::protected_function aFunction, sol::environment aEnvironment,
         bool aAbsolute, bool aAfter, bool aCollectGarbage);
 
+#ifndef __APPLE__
     void* m_pBufferStart;
     void* m_pBuffer;
     size_t m_size{kExecutableSize};
+#endif
     TiltedPhoques::Map<RED4ext::CBaseFunction*, CallChain> m_functions;
     TiltedPhoques::Map<RED4ext::CBaseFunction*, RED4ext::CBaseFunction*> m_trampolines;
     Scripting* m_pScripting;

@@ -62,7 +62,7 @@ void RTTIMapper::RegisterSimpleTypes(sol::state& aLuaState, sol::table& aLuaGlob
             if (!pType || !pValue)
             {
                 luaL_error(aState, "ToVariant: Invalid instance.");
-                return sol::nil;
+                return sol::lua_nil;
             }
 
             return {aState, sol::in_place, Variant(pType, pValue)};
@@ -82,7 +82,7 @@ void RTTIMapper::RegisterSimpleTypes(sol::state& aLuaState, sol::table& aLuaGlob
             if (!pType)
             {
                 luaL_error(aState, "ToVariant: Unknown type '%s'.", aTypeName.c_str());
-                return sol::nil;
+                return sol::lua_nil;
             }
 
             Variant variant(pType);
@@ -99,7 +99,7 @@ void RTTIMapper::RegisterSimpleTypes(sol::state& aLuaState, sol::table& aLuaGlob
             if (typeName.IsNone())
             {
                 luaL_error(aState, "ToVariant: Cannot resolve type from value.");
-                return sol::nil;
+                return sol::lua_nil;
             }
 
             auto* pType = RED4ext::CRTTISystem::Get()->GetType(typeName);
@@ -107,7 +107,7 @@ void RTTIMapper::RegisterSimpleTypes(sol::state& aLuaState, sol::table& aLuaGlob
             if (!pType)
             {
                 luaL_error(aState, "ToVariant: Unknown type '%s'.", typeName.ToString());
-                return sol::nil;
+                return sol::lua_nil;
             }
 
             Variant variant(pType);
@@ -121,7 +121,7 @@ void RTTIMapper::RegisterSimpleTypes(sol::state& aLuaState, sol::table& aLuaGlob
     aLuaGlobal["FromVariant"] = [this](const Variant& aVariant) -> sol::object
     {
         if (aVariant.IsEmpty())
-            return sol::nil;
+            return sol::lua_nil;
 
         RED4ext::CStackType data;
         data.type = aVariant.GetType();
@@ -135,7 +135,7 @@ void RTTIMapper::RegisterSimpleTypes(sol::state& aLuaState, sol::table& aLuaGlob
 
 void RTTIMapper::RegisterDirectTypes(sol::state& aLuaState, sol::table& aLuaGlobal, RED4ext::CRTTISystem* apRtti)
 {
-    const bool reinit = aLuaState["RegisterGlobalInputListener"] != sol::nil;
+    const bool reinit = aLuaState["RegisterGlobalInputListener"] != sol::lua_nil;
 
     if (!reinit)
     {
@@ -156,7 +156,7 @@ void RTTIMapper::RegisterDirectTypes(sol::state& aLuaState, sol::table& aLuaGlob
             std::string typeName = aTypeName.ToString();
             SanitizeName(typeName);
 
-            if (reinit && aLuaGlobal[typeName] != sol::nil)
+            if (reinit && aLuaGlobal[typeName] != sol::lua_nil)
                 return;
 
             switch (apType->GetType())
@@ -190,7 +190,7 @@ void RTTIMapper::RegisterDirectGlobals(sol::table& aLuaGlobal, RED4ext::CRTTISys
         {
             const std::string cShortName = apFunc->shortName.ToString();
 
-            if (aLuaGlobal[cShortName] == sol::nil && !apFunc->flags.isExec)
+            if (aLuaGlobal[cShortName] == sol::lua_nil && !apFunc->flags.isExec)
             {
                 const std::string cFullName = apFunc->fullName.ToString();
                 const auto cIsClassFunc = cFullName.find("::") != std::string::npos;
@@ -258,7 +258,7 @@ void RTTIMapper::SanitizeName(std::string& aName)
 
 RED4ext::CName RTTIMapper::TryResolveTypeName(const sol::object& aValue)
 {
-    if (aValue == sol::nil)
+    if (aValue == sol::lua_nil)
         return {};
 
     if (IsLuaCData(aValue))

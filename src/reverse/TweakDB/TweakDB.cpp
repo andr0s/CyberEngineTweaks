@@ -44,11 +44,11 @@ sol::object TweakDB::GetRecords(const std::string& acRecordTypeName) const
 
     auto* pRecordType = RED4ext::CRTTISystem::Get()->GetType(acRecordTypeName.c_str());
     if (pRecordType == nullptr)
-        return sol::nil;
+        return sol::lua_nil;
 
     auto* pRecords = pTDB->recordsByType.Get(pRecordType);
     if (pRecords == nullptr)
-        return sol::nil;
+        return sol::lua_nil;
 
     RED4ext::CStackType stackType(pArrayType, pRecords);
     auto state = m_lua.Lock();
@@ -66,7 +66,7 @@ sol::object TweakDB::GetRecord(TweakDBID aDBID) const
 
     RED4ext::Handle<RED4ext::IScriptable> record;
     if (!pTDB->TryGetRecord(aDBID.value, record))
-        return sol::nil;
+        return sol::lua_nil;
 
     auto state = m_lua.Lock();
     return make_object(state.Get(), StrongReference(m_lua, std::move(record)));
@@ -85,7 +85,7 @@ sol::object TweakDB::Query(TweakDBID aDBID) const
 
     RED4ext::DynArray<RED4ext::TweakDBID> queryResult;
     if (!pTDB->TryQuery(aDBID.value, queryResult))
-        return sol::nil;
+        return sol::lua_nil;
 
     RED4ext::CStackType stackType(pArrayTweakDBIDType, &queryResult);
     auto state = m_lua.Lock();
@@ -102,7 +102,7 @@ sol::object TweakDB::GetFlat(TweakDBID aDBID) const
     RED4ext::CStackType data = InternalGetFlat(aDBID.value);
 
     if (!data.value)
-        return sol::nil;
+        return sol::lua_nil;
 
     auto state = m_lua.Lock();
     return Scripting::ToLua(state, data);
@@ -140,7 +140,7 @@ bool TweakDB::SetFlatByName(const std::string& acFlatName, sol::optional<sol::ob
     const sol::environment cEnv = aThisEnv;
     const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
 
-    return SetOrCreateFlat(TweakDBID(acFlatName), aObject.value_or(sol::nil), acFlatName, "", logger);
+    return SetOrCreateFlat(TweakDBID(acFlatName), aObject.value_or(sol::lua_nil), acFlatName, "", logger);
 }
 
 bool TweakDB::SetFlat(TweakDBID aDBID, sol::optional<sol::object> aObject, sol::this_environment aThisEnv) const
@@ -148,7 +148,7 @@ bool TweakDB::SetFlat(TweakDBID aDBID, sol::optional<sol::object> aObject, sol::
     const sol::environment cEnv = aThisEnv;
     const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
 
-    return SetOrCreateFlat(aDBID, aObject.value_or(sol::nil), "", "", logger);
+    return SetOrCreateFlat(aDBID, aObject.value_or(sol::lua_nil), "", "", logger);
 }
 
 bool TweakDB::SetFlatByNameAutoUpdate(const std::string& acFlatName, sol::optional<sol::object> aObject, sol::this_environment aThisEnv)
@@ -157,7 +157,7 @@ bool TweakDB::SetFlatByNameAutoUpdate(const std::string& acFlatName, sol::option
     const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
 
     const TweakDBID dbid(acFlatName);
-    if (SetOrCreateFlat(dbid, aObject.value_or(sol::nil), acFlatName, "", logger))
+    if (SetOrCreateFlat(dbid, aObject.value_or(sol::lua_nil), acFlatName, "", logger))
     {
         const uint64_t recordDBID = CET::Get().GetVM().GetTDBIDBase(dbid.value);
         if (recordDBID != 0)
@@ -174,7 +174,7 @@ bool TweakDB::SetFlatAutoUpdate(TweakDBID aDBID, sol::optional<sol::object> aObj
     const sol::environment cEnv = aThisEnv;
     const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
 
-    if (SetOrCreateFlat(aDBID, aObject.value_or(sol::nil), "", "", logger))
+    if (SetOrCreateFlat(aDBID, aObject.value_or(sol::lua_nil), "", "", logger))
     {
         const uint64_t recordDBID = CET::Get().GetVM().GetTDBIDBase(aDBID.value);
         if (recordDBID != 0)
@@ -191,7 +191,7 @@ bool TweakDB::SetTypedFlatByName(const std::string& acFlatName, sol::optional<so
     const sol::environment cEnv = aThisEnv;
     const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
 
-    return SetOrCreateFlat(TweakDBID(acFlatName), aObject.value_or(sol::nil), acFlatName, acTypeName, logger);
+    return SetOrCreateFlat(TweakDBID(acFlatName), aObject.value_or(sol::lua_nil), acFlatName, acTypeName, logger);
 }
 
 bool TweakDB::SetTypedFlat(TweakDBID aDBID, sol::optional<sol::object> aObject, const std::string& acTypeName, sol::this_environment aThisEnv) const
@@ -199,7 +199,7 @@ bool TweakDB::SetTypedFlat(TweakDBID aDBID, sol::optional<sol::object> aObject, 
     const sol::environment cEnv = aThisEnv;
     const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
 
-    return SetOrCreateFlat(aDBID, aObject.value_or(sol::nil), "", acTypeName, logger);
+    return SetOrCreateFlat(aDBID, aObject.value_or(sol::lua_nil), "", acTypeName, logger);
 }
 
 bool TweakDB::SetOrCreateFlat(
@@ -482,7 +482,7 @@ bool TweakDB::InternalCreateRecord(const std::string& acRecordName, const std::s
         std::shared_lock _(pTDB->mutex01);
 
         RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> recordsOfSameType;
-        if (!pTDB->TryGetRecordsByType(pType, recordsOfSameType) || recordsOfSameType.size == 0)
+        if (!pTDB->TryGetRecordsByType(pType, recordsOfSameType) || RedSize(recordsOfSameType) == 0)
         {
             if (acpLogger)
                 acpLogger->info("Failed to create record '{}'. reason: Unknown type '{}'", acRecordName, acRecordTypeName);
@@ -506,7 +506,7 @@ bool TweakDB::InternalCreateRecord(TweakDBID aDBID, const std::string& acRecordT
         std::shared_lock _(pTDB->mutex01);
 
         RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> recordsOfSameType;
-        if (!pTDB->TryGetRecordsByType(pType, recordsOfSameType) || recordsOfSameType.size == 0)
+        if (!pTDB->TryGetRecordsByType(pType, recordsOfSameType) || RedSize(recordsOfSameType) == 0)
         {
             if (acpLogger)
                 acpLogger->info("Failed to create record '{}'. reason: Unknown type '{}'", aDBID.ToString(), acRecordTypeName);

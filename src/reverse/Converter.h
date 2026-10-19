@@ -23,7 +23,7 @@ struct CNameConverter : LuaRED<CName, "CName">
     RED4ext::CStackType ToRED(sol::object aObject, RED4ext::CBaseRTTIType* apRtti, TiltedPhoques::Allocator* apAllocator)
     {
         RED4ext::CStackType result;
-        if (aObject != sol::nil && aObject.get_type() == sol::type::string) // CName from String implicit cast
+        if (aObject != sol::lua_nil && aObject.get_type() == sol::type::string) // CName from String implicit cast
         {
             sol::state_view v(aObject.lua_state());
             std::string str = v["tostring"](aObject);
@@ -45,10 +45,13 @@ struct TweakDBIDConverter : LuaRED<TweakDBID, "TweakDBID">
     RED4ext::CStackType ToRED(sol::object aObject, RED4ext::CBaseRTTIType* apRtti, TiltedPhoques::Allocator* apAllocator)
     {
         RED4ext::CStackType result;
-        if (aObject != sol::nil && aObject.get_type() == sol::type::string)
+        if (aObject != sol::lua_nil && aObject.get_type() == sol::type::string)
         {
             result.type = apRtti;
             result.value = apAllocator->New<TweakDBID>(aObject.as<std::string>());
+#ifdef __APPLE__
+            RememberTweakDBIDName(*static_cast<TweakDBID*>(result.value), 0, aObject.as<std::string>());
+#endif
         }
         else
         {
@@ -80,7 +83,7 @@ struct EnumConverter : LuaRED<Enum, "Enum">
                 result.value = nullptr;
             }
         }
-        else if (aObject == sol::nil)
+        else if (aObject == sol::lua_nil)
         {
             auto* enumType = static_cast<RED4ext::CEnum*>(apRtti);
             Enum en(enumType, 0);
@@ -206,7 +209,7 @@ struct ClassConverter : LuaRED<ClassReference, "ClassReference">
         }
         // Disabled until new allocator is implemented
         // Current implementation can leak
-        // else if (aObject == sol::nil)
+        // else if (aObject == sol::lua_nil)
         // {
         //     result.value = RTTIHelper::Get().NewInstance(apRtti, sol::nullopt, apAllocator);
         // }

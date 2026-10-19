@@ -70,6 +70,11 @@ void ReadTDBIDNameArray(std::istream& aFile, uint32_t aCount, TiltedPhoques::Map
 
 bool InitializeTweakDBMetadata(TiltedPhoques::Map<uint64_t, TDBIDLookupEntry>& lookup)
 {
+#ifdef __APPLE__
+    // The macOS game links Oodle statically and does not export it. An uncompressed tweakdb.str in the tweakdb folder
+    // still works; tweakdbstr.kark needs OodleLZ_Decompress and is skipped when it is not available.
+    auto OodleLZ_Decompress = reinterpret_cast<TOodleLZ_Decompress>(dlsym(RTLD_DEFAULT, "OodleLZ_Decompress"));
+#else
     auto hOodleHandle = GetModuleHandle(TEXT("oo2ext_7_win64.dll"));
     if (hOodleHandle == nullptr)
     {
@@ -83,6 +88,7 @@ bool InitializeTweakDBMetadata(TiltedPhoques::Map<uint64_t, TDBIDLookupEntry>& l
         Log::Error("CDPRTweakDBMetadata::Initalize() - Could not get OodleLZ_Decompress");
         return false;
     }
+#endif
 
     const auto tdbstrPathRAW = GetAbsolutePath(L"tweakdb.str", CET::Get().GetPaths().TweakDB(), false, true);
     if (!tdbstrPathRAW.empty())
@@ -107,6 +113,13 @@ bool InitializeTweakDBMetadata(TiltedPhoques::Map<uint64_t, TDBIDLookupEntry>& l
     }
     else
     {
+        if (OodleLZ_Decompress == nullptr)
+        {
+            Log::Warn("CDPRTweakDBMetadata::Initalize() - OodleLZ_Decompress is not available on this platform; place an uncompressed "
+                      "tweakdb.str in the tweakdb folder to get TweakDB names");
+            return false;
+        }
+
         const auto tdbstrPath = GetAbsolutePath(L"tweakdbstr.kark", CET::Get().GetPaths().TweakDB(), false, true);
         if (tdbstrPath.empty())
         {
@@ -122,10 +135,11 @@ bool InitializeTweakDBMetadata(TiltedPhoques::Map<uint64_t, TDBIDLookupEntry>& l
             std::string decodedBytes;
             decodedBytes.resize(reinterpret_cast<uint32_t*>(encodedBytes.data())[1]);
 
-            char workingMemory[0x80000];
+            // On the heap: 512 KiB is the whole stack of a secondary thread on macOS (this runs on one).
+            std::vector<char> workingMemory(0x80000);
             auto size = OodleLZ_Decompress(
                 encodedBytes.data() + headerSize, static_cast<int>(encodedBytes.size() - headerSize), decodedBytes.data(), static_cast<int>(decodedBytes.size()), 1, 1, 0, nullptr,
-                nullptr, nullptr, nullptr, workingMemory, std::size(workingMemory), 3);
+                nullptr, nullptr, nullptr, workingMemory.data(), workingMemory.size(), 3);
 
             assert(size == decodedBytes.size());
             if (size != decodedBytes.size())
@@ -288,12 +302,22 @@ void LuaVM::Prepare()
         .detach();
 }
 
+#ifdef __APPLE__
+uint64_t LuaVM::HookTDBIDCtorDerive(const TDBID* apBase, const char* acpName)
+{
+    const auto result = s_vm->m_realTDBIDCtorDerive(apBase, acpName);
+    if (apBase && acpName)
+        s_vm->RegisterTDBIDString(result, apBase->value, std::string(acpName));
+    return result;
+}
+#else
 TDBID* LuaVM::HookTDBIDCtorDerive(TDBID* apBase, TDBID* apThis, const char* acpName)
 {
     const auto result = s_vm->m_realTDBIDCtorDerive(apBase, apThis, acpName);
     s_vm->RegisterTDBIDString(apThis->value, apBase->value, std::string(acpName));
     return result;
 }
+#endif
 
 void LuaVM::HookTDBIDToStringDEBUG(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack, void* apResult, void*)
 {
@@ -339,7 +363,14 @@ uint64_t LuaVM::HookTweakDBLoad(uintptr_t aThis, uintptr_t aParam)
     // Disable changes tracking added to TweakDB in patch 2.0 and causing instability.
     RED4ext::TweakDB::Get()->unk160 = 0;
 
+#ifdef __APPLE__
+    // onTweak must come after onHook, as on Windows: TryPostInitialize runs PostInitializeScripting first if the
+    // scripts are already bound, and otherwise defers both.
+    s_vm->m_tweakDBLoaded = true;
+    s_vm->TryPostInitialize();
+#else
     s_vm->PostInitializeTweakDB();
+#endif
 
     return ret;
 }
@@ -348,6 +379,7 @@ void LuaVM::Hook()
 {
     s_vm = this;
 
+#ifdef _WIN32
     {
         const RED4ext::UniversalRelocPtr<uint8_t> func(CyberEngineTweaks::AddressHashes::CScript_Log);
         uint8_t* pLocation = func.GetAddr();
@@ -413,6 +445,8 @@ void LuaVM::Hook()
         }
     }
 
+#endif
+
     {
         const RED4ext::UniversalRelocPtr<uint8_t> func(CyberEngineTweaks::AddressHashes::CScript_TDBIDConstructorDerive);
         uint8_t* pLocation = func.GetAddr();
@@ -427,6 +461,7 @@ void LuaVM::Hook()
         }
     }
 
+#ifdef _WIN32
     {
         const RED4ext::UniversalRelocPtr<uint8_t> func(CyberEngineTweaks::AddressHashes::CScript_ToStringDEBUG);
         uint8_t* pLocation = func.GetAddr();
@@ -459,6 +494,10 @@ void LuaVM::Hook()
         }
     }
 
+#else
+    HookInitializeScriptRuntime();
+#endif
+
     {
         const RED4ext::UniversalRelocPtr<uint8_t> func(CyberEngineTweaks::AddressHashes::CScript_TweakDBLoad);
         uint8_t* pLocation = func.GetAddr();
@@ -474,6 +513,7 @@ void LuaVM::Hook()
         }
     }
 
+#ifdef _WIN32
     {
         const RED4ext::UniversalRelocPtr<uint8_t> func(CyberEngineTweaks::AddressHashes::PlayerSystem_OnPlayerSpawned);
         uint8_t* pLocation = func.GetAddr();
@@ -489,9 +529,15 @@ void LuaVM::Hook()
         }
     }
 
+#endif
+
     GameMainThread::Get().AddRunningTask(
         [this]
         {
+#ifdef __APPLE__
+            s_vm->OnRunningUpdate();
+#endif
+
             const auto cNow = std::chrono::high_resolution_clock::now();
             const auto cDelta = cNow - s_vm->m_lastframe;
             const auto cSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(cDelta);
@@ -511,3 +557,174 @@ void LuaVM::Hook()
             return true;
         });
 }
+
+#ifdef __APPLE__
+namespace
+{
+using TInitializeScriptRuntime = void(RED4ext::CRTTISystem*);
+TInitializeScriptRuntime* s_realInitializeScriptRuntime = nullptr;
+
+// IRTTISystem::InitializeScriptRuntime is called by the script loader once the script bytecode is loaded and bound
+// (RED4ext.SDK RTTISystem.hpp, vtable +0xF8). The RTTI system's destructors are its last two vtable slots, so the
+// Itanium layout leaves this slot where the SDK declares it. Its neighbours were checked in the macOS 2.3.1 binary:
+// slot 37 returns entry i of the string table at +0x1B0 (GetStringConst) and slot 38 assigns that table
+// (SetStringTable), as the SDK declares.
+constexpr size_t kInitializeScriptRuntimeSlot = 0xF8 / sizeof(void*);
+
+void HookedInitializeScriptRuntime(RED4ext::CRTTISystem* apThis)
+{
+    s_realInitializeScriptRuntime(apThis);
+
+    if (s_vm)
+        s_vm->OnScriptRuntimeInitialized();
+}
+} // namespace
+
+void LuaVM::HookInitializeScriptRuntime()
+{
+    auto* pRtti = RED4ext::CRTTISystem::Get();
+    if (!pRtti || !*reinterpret_cast<void**>(pRtti))
+    {
+        Log::Error("IRTTISystem is not available; mods will be initialized when the game reaches its main loop.");
+        return;
+    }
+
+    auto* pTarget = (*reinterpret_cast<void***>(pRtti))[kInitializeScriptRuntimeSlot];
+    if (MH_CreateHook(pTarget, reinterpret_cast<void*>(&HookedInitializeScriptRuntime), reinterpret_cast<void**>(&s_realInitializeScriptRuntime)) != MH_OK)
+        Log::Error("Could not hook IRTTISystem::InitializeScriptRuntime! Mods will be initialized when the game reaches its main loop.");
+    else
+        Log::Info("IRTTISystem::InitializeScriptRuntime function hook complete!");
+}
+
+bool LuaVM::AreScriptsBound()
+{
+    // PlayerPuppet::OnGameAttached is defined by the game's scripts, not natively: once RTTI has it, the script
+    // bytecode is loaded and bound.
+    auto* pRtti = RED4ext::CRTTISystem::Get();
+    if (!pRtti)
+        return false;
+
+    const auto* pClass = pRtti->GetClass("PlayerPuppet");
+    if (!pClass)
+        return false;
+
+    const RED4ext::CName cName("OnGameAttached");
+    for (const auto* pFunc : pClass->funcs)
+    {
+        if (pFunc && pFunc->shortName == cName)
+            return true;
+    }
+    return false;
+}
+
+void LuaVM::OnBaseInitialization()
+{
+    if (m_luaInitialized)
+        return;
+
+    m_luaInitialized = true;
+    m_scripting.Initialize();
+}
+
+void LuaVM::OnScriptRuntimeInitialized()
+{
+    TryPostInitialize();
+}
+
+void LuaVM::TryPostInitialize()
+{
+    OnBaseInitialization();
+
+    if (!m_scriptingPostInitialized)
+    {
+        if (!AreScriptsBound())
+            return;
+
+        PostInitializeScripting();
+        m_scriptingPostInitialized = true;
+
+        HookScriptLogHandlers();
+
+        // Windows CET runs onInit when PlayerSystem reports the player's main object; the script-side equivalent is
+        // PlayerPuppet::OnGameAttached. The flag is consumed on the next Running tick, outside the script call.
+        m_scripting.ObservePlayerAttached([this] { m_playerAttached = true; });
+    }
+
+    if (m_tweakDBLoaded && !m_tweakDBPostInitialized)
+    {
+        PostInitializeTweakDB();
+        m_tweakDBPostInitialized = true;
+    }
+}
+
+void LuaVM::OnRunningEnter()
+{
+    // TweakDB is loaded during engine initialization. If its hook could not be attached, still give mods the TweakDB
+    // API once the game runs.
+    if (!m_tweakDBLoaded)
+        m_tweakDBLoaded = RED4ext::TweakDB::Get() != nullptr;
+
+    TryPostInitialize();
+}
+
+void LuaVM::OnRunningUpdate()
+{
+    if (!m_scriptingPostInitialized || !m_tweakDBPostInitialized)
+        TryPostInitialize();
+
+    if (!m_initialized && m_scriptingPostInitialized && m_tweakDBPostInitialized && m_playerAttached)
+        PostInitializeMods();
+}
+
+void LuaVM::HookScriptLogHandlers()
+{
+    // Script natives are dispatched through RED4ext::OpcodeHandlers (a verified address): entry i of that table is the
+    // handler of the native function whose registration index is i. Replacing entries redirects the script log
+    // natives to CET's logs without patching game code. Their macOS addresses are not needed.
+    const RED4ext::UniversalRelocPtr<RED4ext::OpcodeHandlers::Handler_t> cHandlers(RED4ext::Detail::AddressHashes::OpcodeHandlers);
+    auto* pHandlers = cHandlers.GetAddr();
+    auto* pRtti = RED4ext::CRTTISystem::Get();
+    if (!pHandlers || !pRtti)
+    {
+        Log::Warn("Script log natives were not redirected (handler table unavailable).");
+        return;
+    }
+
+    const auto swap = [pHandlers](RED4ext::CBaseFunction* apFunction, RED4ext::OpcodeHandlers::Handler_t aHook, RED4ext::OpcodeHandlers::Handler_t& aReal, const char* acpName)
+    {
+        // Natives registered at runtime get indices from 0xFF up; lower entries are the opcode handlers.
+        const auto index = apFunction ? apFunction->GetRegIndex() : 0u;
+        if (!apFunction || !apFunction->flags.isNative || index < 0xFF || !pHandlers[index])
+        {
+            Log::Warn("Script native {} was not redirected.", acpName);
+            return;
+        }
+
+        aReal = pHandlers[index];
+        pHandlers[index] = aHook;
+        Log::Info("Script native {} redirected.", acpName);
+    };
+
+    swap(pRtti->GetFunction("Log"), reinterpret_cast<RED4ext::OpcodeHandlers::Handler_t>(&HookLog), m_realLog, "Log");
+    swap(pRtti->GetFunction("LogError"), reinterpret_cast<RED4ext::OpcodeHandlers::Handler_t>(&HookLog), m_realLogError, "LogError");
+    swap(pRtti->GetFunction("LogWarning"), reinterpret_cast<RED4ext::OpcodeHandlers::Handler_t>(&HookLog), m_realLogWarning, "LogWarning");
+    swap(pRtti->GetFunction("LogChannel"), reinterpret_cast<RED4ext::OpcodeHandlers::Handler_t>(&HookLogChannel), m_realLogChannel, "LogChannel");
+    swap(pRtti->GetFunction("LogChannelWarning"), reinterpret_cast<RED4ext::OpcodeHandlers::Handler_t>(&HookLogChannel), m_realLogChannelWarning, "LogChannelWarning");
+
+    // TDBID.ToStringDEBUG is a static native of the class TDBID, which is registered under that native name
+    // (0x102B79424); GetClassByScriptName finds only classes with a separate script name.
+    RED4ext::CBaseFunction* pToStringDebug = nullptr;
+    auto* pTDBIDClass = pRtti->GetClass("TDBID");
+    if (!pTDBIDClass)
+        pTDBIDClass = pRtti->GetClassByScriptName("TDBID");
+    if (auto* pClass = pTDBIDClass)
+    {
+        for (auto* pFunc : pClass->staticFuncs)
+        {
+            if (pFunc && pFunc->shortName == RED4ext::CName("ToStringDEBUG"))
+                pToStringDebug = pFunc;
+        }
+    }
+    swap(pToStringDebug, reinterpret_cast<RED4ext::OpcodeHandlers::Handler_t>(&HookTDBIDToStringDEBUG), m_realTDBIDToStringDEBUG, "TDBID.ToStringDEBUG");
+}
+#endif

@@ -42,7 +42,7 @@ sol::object Type::Index(const std::string& acName, sol::this_environment aThisEn
 
 sol::object Type::NewIndex(const std::string& acName, sol::optional<sol::object> aParam)
 {
-    return NewIndex_Impl(acName, aParam.has_value() ? aParam.value() : sol::nil);
+    return NewIndex_Impl(acName, aParam.has_value() ? aParam.value() : sol::lua_nil);
 }
 
 sol::object Type::Index_Impl(const std::string& acName, sol::this_environment aThisEnv)
@@ -52,7 +52,7 @@ sol::object Type::Index_Impl(const std::string& acName, sol::this_environment aT
         return itor->second;
     }
 
-    return sol::nil;
+    return sol::lua_nil;
 }
 
 sol::object Type::NewIndex_Impl(const std::string& acName, sol::object aParam)
@@ -89,7 +89,7 @@ std::string Type::FunctionDescriptor(RED4ext::CBaseFunction* apFunc, bool aWithH
 
     ret << funcName2 << "(";
 
-    for (auto i = 0u; i < apFunc->params.size; ++i)
+    for (auto i = 0u; i < RedSize(apFunc->params); ++i)
     {
         const auto* param = apFunc->params[i];
 
@@ -125,7 +125,7 @@ std::string Type::FunctionDescriptor(RED4ext::CBaseFunction* apFunc, bool aWithH
 
     if (hasOutParams)
     {
-        for (auto i = 0u; i < apFunc->params.size; ++i)
+        for (auto i = 0u; i < RedSize(apFunc->params); ++i)
         {
             const auto* param = apFunc->params[i];
 
@@ -202,17 +202,17 @@ Type::Descriptor ClassType::Dump(bool aWithHashes) const
     while (type)
     {
         std::string name = type->name.ToString();
-        for (auto i = 0u; i < type->funcs.size; ++i)
+        for (auto i = 0u; i < RedSize(type->funcs); ++i)
         {
             descriptor.functions.emplace_back(FunctionDescriptor(type->funcs[i], aWithHashes));
         }
 
-        for (auto i = 0u; i < type->staticFuncs.size; ++i)
+        for (auto i = 0u; i < RedSize(type->staticFuncs); ++i)
         {
             descriptor.staticFunctions.emplace_back(FunctionDescriptor(type->staticFuncs[i], aWithHashes));
         }
 
-        for (auto i = 0u; i < type->props.size; ++i)
+        for (auto i = 0u; i < RedSize(type->props); ++i)
         {
             const auto* cpProperty = type->props[i];
             const auto cName = cpProperty->type->GetName();
@@ -231,7 +231,7 @@ sol::object ClassType::Index_Impl(const std::string& acName, sol::this_environme
     auto* pClass = static_cast<RED4ext::CClass*>(m_pType);
 
     if (!pClass)
-        return sol::nil;
+        return sol::lua_nil;
 
     auto* pHandle = GetHandle();
 
@@ -246,13 +246,13 @@ sol::object ClassType::Index_Impl(const std::string& acName, sol::this_environme
 
     auto result = Type::Index_Impl(acName, aThisEnv);
 
-    if (result != sol::nil)
+    if (result != sol::lua_nil)
         return result;
 
     const auto func = RTTIHelper::Get().ResolveFunction(pClass, acName, pHandle != nullptr);
 
     if (!func)
-        return sol::nil;
+        return sol::lua_nil;
 
     return Type::NewIndex_Impl(acName, func);
 }
@@ -262,7 +262,7 @@ sol::object ClassType::NewIndex_Impl(const std::string& acName, sol::object aPar
     auto* pClass = static_cast<RED4ext::CClass*>(m_pType);
 
     if (!pClass)
-        return sol::nil;
+        return sol::lua_nil;
 
     auto* pHandle = GetHandle();
 

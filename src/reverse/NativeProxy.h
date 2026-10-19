@@ -12,8 +12,14 @@ struct NativeProxyType : RED4ext::CClass
 
     RED4ext::Handle<RED4ext::IScriptable> CreateHandle();
 
+#ifdef __APPLE__
+    // RED4ext.SDK-macos declares these with const void* (newer upstream SDK)
+    bool IsEqual(const void* aLhs, const void* aRhs, uint32_t a3) final; // 48
+    void Assign(void* aLhs, const void* aRhs) const final;               // 50
+#else
     const bool IsEqual(const RED4ext::ScriptInstance aLhs, const RED4ext::ScriptInstance aRhs, uint32_t a3) final; // 48
     void Assign(RED4ext::ScriptInstance aLhs, const RED4ext::ScriptInstance aRhs) const final; // 50
+#endif
     void ConstructCls(RED4ext::ScriptInstance aMemory) const final; // D8
     void DestructCls(RED4ext::ScriptInstance aMemory) const final; // E0
     void* AllocMemory() const final; // E8

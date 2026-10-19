@@ -5,7 +5,13 @@
 #include "Utils.h"
 #include <reverse/WeakReference.h>
 #include <reverse/RTTIHelper.h>
+#ifdef _WIN32
 #include <xbyak/xbyak.h>
+#else
+#include <fishhook.h>
+#include <mach-o/loader.h>
+#include <unordered_set>
+#endif
 
 namespace
 {
@@ -32,6 +38,7 @@ size_t GetFunctionSize(RED4ext::CBaseFunction* apFunction)
     return sizeof(RED4ext::CClassFunction);
 }
 
+#ifdef _WIN32
 struct OverrideCodegen : Xbyak::CodeGenerator
 {
     OverrideCodegen(uintptr_t apRealFunc, uintptr_t apTrampoline)
@@ -45,26 +52,117 @@ struct OverrideCodegen : Xbyak::CodeGenerator
         ret();
     }
 };
+#else
+// The Windows build generates an x64 trampoline per overridden function at runtime (xbyak) that passes the function
+// to HandleOverridenFunction. The macOS build uses a fixed pool of compiled thunks instead, each bound to one
+// function through its index, so CET never creates executable memory.
+constexpr size_t kThunkCount = 4096;
+using TNativeScriptFunction = void (*)(RED4ext::IScriptable*, RED4ext::CStackFrame*, void*, int64_t);
+
+std::array<std::atomic<RED4ext::CClassFunction*>, kThunkCount> s_thunkTargets{};
+size_t s_nextThunk = 0; // guarded by FunctionOverride::m_lock (ApplyOverride runs with it held)
+
+template <size_t... I> constexpr std::array<TNativeScriptFunction, sizeof...(I)> MakeThunkTable(std::index_sequence<I...>)
+{
+    return {&FunctionOverride::OverrideThunk<I>...};
+}
+
+// Swapping a function with its trampoline copies GetFunctionSize() bytes, up to sizeof(CClassFunction). The game
+// allocates script functions (CScriptedFunction) and global natives with only 0xB8 bytes, so, like the Windows build
+// (which hooks the game's function allocator, an address not verified on macOS), every function-sized allocation from
+// the RTTI function pool is enlarged. The macOS game calls PoolStorageProxy<PoolRTTIFunction>::Allocate through its
+// GOT (all 105 call sites in 2.3.1 use the stub), so the GOT entry is rebound; objects allocated before that are
+// recognized and not overridden when they are too small.
+struct Block
+{
+    void* memory;
+    size_t size;
+};
+using TPoolAllocate = Block (*)(uint64_t aSize);
+
+TPoolAllocate s_realPoolAllocate = nullptr;
+std::mutex s_enlargedLock;
+std::unordered_set<const void*> s_enlarged;
+
+Block HookedPoolAllocate(uint64_t aSize)
+{
+    if (aSize >= sizeof(RED4ext::CScriptedFunction) && aSize < s_cMaxFunctionSize)
+    {
+        const auto block = s_realPoolAllocate(s_cMaxFunctionSize);
+        if (block.memory)
+        {
+            std::lock_guard _(s_enlargedLock);
+            s_enlarged.insert(block.memory);
+        }
+        return block;
+    }
+    return s_realPoolAllocate(aSize);
+}
+
+// Allocation size of an existing function object: class functions (member or static) are allocated with
+// sizeof(CClassFunction) by the game; other kinds only when they were enlarged above.
+size_t GetAllocatedFunctionSize(RED4ext::CBaseFunction* apFunction, const void* apClassFunctionVtbl)
+{
+    if (*reinterpret_cast<void**>(apFunction) == apClassFunctionVtbl)
+        return sizeof(RED4ext::CClassFunction);
+
+    std::lock_guard _(s_enlargedLock);
+    return s_enlarged.contains(apFunction) ? s_cMaxFunctionSize : sizeof(RED4ext::CScriptedFunction);
+}
+
+void ProbeHandler(RED4ext::IScriptable*, RED4ext::CStackFrame* apFrame, void*, int64_t)
+{
+    apFrame->code++;
+}
+#endif
 
 } // namespace
+
+#ifdef __APPLE__
+template <size_t N> void FunctionOverride::OverrideThunk(RED4ext::IScriptable* apContext, RED4ext::CStackFrame* apFrame, void* apOut, int64_t a4)
+{
+    HandleOverridenFunction(apContext, apFrame, apOut, reinterpret_cast<void*>(a4), s_thunkTargets[N].load(std::memory_order_acquire));
+}
+
+namespace
+{
+const std::array<TNativeScriptFunction, kThunkCount> s_thunks = MakeThunkTable(std::make_index_sequence<kThunkCount>{});
+}
+
+void FunctionOverride::HookFunctionAllocator()
+{
+    const auto* header = Platform::GetGameImageHeader();
+    rebinding rebind{"_ZN3red6memory16PoolStorageProxyINS_16PoolRTTIFunctionEE8AllocateEy", reinterpret_cast<void*>(&HookedPoolAllocate),
+                     reinterpret_cast<void**>(&s_realPoolAllocate)};
+    if (!header || rebind_symbols_image(const_cast<mach_header_64*>(header), Platform::GetGameImageSlide(), &rebind, 1) != 0 || !s_realPoolAllocate)
+        Log::Error("Could not hook the RTTI function allocator! Overrides of script functions will be refused.");
+    else
+        Log::Info("RTTI function allocator hook complete!");
+}
+#endif
 
 FunctionOverride::FunctionOverride(Scripting* apScripting)
     : m_pScripting(apScripting)
 {
     s_pOverride = this;
 
+#ifndef __APPLE__
     m_pBuffer = m_pBufferStart = VirtualAlloc(nullptr, m_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+#endif
 
     Hook();
 }
 
 FunctionOverride::~FunctionOverride()
 {
+#ifndef __APPLE__
     VirtualFree(m_pBufferStart, 0, MEM_RELEASE);
+#endif
 
     s_pOverride = nullptr;
 }
 
+#ifndef __APPLE__
 void* FunctionOverride::MakeExecutable(const uint8_t* apData, size_t aSize)
 {
     if (std::align(0x10, aSize, m_pBuffer, m_size))
@@ -80,6 +178,7 @@ void* FunctionOverride::MakeExecutable(const uint8_t* apData, size_t aSize)
 
     return nullptr;
 }
+#endif
 
 void FunctionOverride::Refresh()
 {
@@ -115,6 +214,7 @@ void FunctionOverride::Clear()
     m_functions.clear();
 }
 
+#ifndef __APPLE__
 void* FunctionOverride::HookCreateFunction(void* apMemoryPool, size_t)
 {
     enum
@@ -124,6 +224,7 @@ void* FunctionOverride::HookCreateFunction(void* apMemoryPool, size_t)
 
     return RealCreateFunction(apMemoryPool, kOverrideAllocationSize);
 }
+#endif
 
 bool FunctionOverride::HookRunPureScriptFunction(RED4ext::CClassFunction* apFunction, RED4ext::CScriptStack* apStack, RED4ext::CStackFrame* a3)
 {
@@ -162,14 +263,14 @@ bool FunctionOverride::HookRunPureScriptFunction(RED4ext::CClassFunction* apFunc
 
                 if (!apFunction->flags.isStatic && pContext)
                 {
-                    args.reserve(apFunction->params.size + 1);
+                    args.reserve(RedSize(apFunction->params) + 1);
 
                     const auto weak = RED4ext::WeakHandle(*reinterpret_cast<RED4ext::WeakHandle<RED4ext::IScriptable>*>(&pContext->ref));
                     args.emplace_back(make_object(luaState, WeakReference(lockedState, weak)));
                 }
                 else
                 {
-                    args.reserve(apFunction->params.size);
+                    args.reserve(RedSize(apFunction->params));
                 }
 
                 // There are at least two different implementations of CScriptStack.
@@ -179,7 +280,7 @@ bool FunctionOverride::HookRunPureScriptFunction(RED4ext::CClassFunction* apFunc
                 // This simple check allows us to avoid copying and read the args directly.
                 const bool isArrayArgs = apStack->value != ret.value;
 
-                for (uint32_t i = 0; i < apFunction->params.size; ++i)
+                for (uint32_t i = 0; i < RedSize(apFunction->params); ++i)
                 {
                     const auto& pParam = apFunction->params[i];
 
@@ -251,7 +352,7 @@ void FunctionOverride::HandleOverridenFunction(RED4ext::IScriptable* apContext, 
 
             if (!apFunction->flags.isStatic)
             {
-                args.reserve(apFunction->params.size + 1);
+                args.reserve(RedSize(apFunction->params) + 1);
 
                 const auto pContext = apContext ? apContext : apFrame->context;
                 if (pContext)
@@ -262,12 +363,12 @@ void FunctionOverride::HandleOverridenFunction(RED4ext::IScriptable* apContext, 
                 }
                 else
                 {
-                    args.emplace_back(sol::nil);
+                    args.emplace_back(sol::lua_nil);
                 }
             }
             else
             {
-                args.reserve(apFunction->params.size);
+                args.reserve(RedSize(apFunction->params));
             }
 
             // Nasty way of popping all args
@@ -389,7 +490,7 @@ bool FunctionOverride::ExecuteChain(
         auto lockedState = aChain.pScripting->GetLockedState();
         auto& luaState = lockedState.Get();
 
-        sol::object luaContext = pRealFunction->flags.isStatic ? sol::nil : apOrigArgs->at(0);
+        sol::object luaContext = pRealFunction->flags.isStatic ? sol::lua_nil : apOrigArgs->at(0);
         TiltedPhoques::Vector<sol::object> luaArgs(apOrigArgs->begin() + (pRealFunction->flags.isStatic ? 0 : 1), apOrigArgs->end());
 
         const auto luaWrapped = WrapNextOverride(aChain, 0, luaState, luaContext, luaArgs, pRealFunction, apContext, aLock);
@@ -411,7 +512,7 @@ bool FunctionOverride::ExecuteChain(
                 {
                     auto luaOutArg = luaResult.get<sol::object>(i + luaRetOffset);
 
-                    if (luaOutArg != sol::nil)
+                    if (luaOutArg != sol::lua_nil)
                         Scripting::ToRED(luaOutArg, apOutArgs->at(i));
                 }
             }
@@ -466,9 +567,11 @@ sol::function FunctionOverride::WrapNextOverride(
 {
     if (aStep == static_cast<int>(aChain.Overrides.size()))
     {
+        // The pointers are captured by value: these functions run after WrapNextOverride has returned, and on arm64 its
+        // parameters live in its own stack frame (on Windows x64 they sit in the caller's home space, which hid this).
         return MakeSolFunction(
             aLuaState,
-            [&](sol::variadic_args aWrapArgs, sol::this_state aState) -> sol::variadic_results
+            [&, apRealFunction, apRealContext](sol::variadic_args aWrapArgs, sol::this_state aState) -> sol::variadic_results
             {
                 std::string errorMessage;
                 sol::variadic_results results = RTTIHelper::Get().ExecuteFunction(apRealFunction, apRealContext, aWrapArgs, 0, errorMessage);
@@ -491,20 +594,20 @@ sol::function FunctionOverride::WrapNextOverride(
 
     return MakeSolFunction(
         aLuaState,
-        [&, aStep](sol::variadic_args aWrapArgs, sol::this_state aState) -> sol::variadic_results
+        [&, aStep, apRealFunction, apRealContext](sol::variadic_args aWrapArgs, sol::this_state aState) -> sol::variadic_results
         {
             const auto call = (aChain.Overrides.rbegin() + aStep)->get();
 
-            for (uint32_t i = 0; i < apRealFunction->params.size; ++i)
+            for (uint32_t i = 0; i < RedSize(apRealFunction->params); ++i)
             {
                 if (static_cast<int>(i) < aWrapArgs.leftover_count())
                     aLuaArgs[i] = aWrapArgs[i];
                 else
-                    aLuaArgs[i] = static_cast<sol::object>(sol::nil);
+                    aLuaArgs[i] = static_cast<sol::object>(sol::lua_nil);
             }
 
             auto next = WrapNextOverride(aChain, aStep + 1, aLuaState, aLuaContext, aLuaArgs, apRealFunction, apRealContext, aLock);
-            auto result = aLuaContext == sol::nil ? call->ScriptFunction(as_args(aLuaArgs), next) : call->ScriptFunction(aLuaContext, as_args(aLuaArgs), next);
+            auto result = aLuaContext == sol::lua_nil ? call->ScriptFunction(as_args(aLuaArgs), next) : call->ScriptFunction(aLuaContext, as_args(aLuaArgs), next);
 
             if (!result.valid())
             {
@@ -545,6 +648,10 @@ void FunctionOverride::Hook() const
         }
     }
 
+#ifdef __APPLE__
+    // CET is constructed at plugin load, before the game loads its scripts.
+    HookFunctionAllocator();
+#else
     {
         const RED4ext::UniversalRelocPtr<void> func(CyberEngineTweaks::AddressHashes::CScript_AllocateFunction);
         RealCreateFunction = reinterpret_cast<TCreateFunction>(func.GetAddr());
@@ -560,6 +667,7 @@ void FunctionOverride::Hook() const
                 Log::Info("RealCreateFunction function hook complete!");
         }
     }
+#endif
 }
 
 void FunctionOverride::Override(
@@ -645,12 +753,40 @@ void FunctionOverride::ApplyOverride(
 
         if (!m_trampolines.contains(pRealFunction))
         {
+#ifdef __APPLE__
+            // The swap below copies GetFunctionSize() bytes into the real function object; refuse objects the game
+            // allocated smaller than that (see HookedPoolAllocate).
+            static const void* s_classFunctionVtbl = [pClassType]
+            {
+                auto* pProbe = RED4ext::CClassFunction::Create(pClassType, "__cet_override_probe", "__cet_override_probe", &ProbeHandler);
+                return *reinterpret_cast<void**>(pProbe); // the probe is never registered; it is leaked on purpose
+            }();
+
+            if (GetAllocatedFunctionSize(pRealFunction, s_classFunctionVtbl) < GetFunctionSize(pRealFunction))
+            {
+                spdlog::get("scripting")->error("Cannot override {}::{}: the game allocated this function before CET could prepare it", pClassType->GetName().ToString(), acFullName);
+                m_functions.erase(pRealFunction);
+                return;
+            }
+
+            if (s_nextThunk >= kThunkCount)
+            {
+                spdlog::get("scripting")->error("Cannot override {}::{}: all {} override slots are in use", pClassType->GetName().ToString(), acFullName, kThunkCount);
+                m_functions.erase(pRealFunction);
+                return;
+            }
+
+            const auto thunkIndex = s_nextThunk++;
+            s_thunkTargets[thunkIndex].store(pRealFunction, std::memory_order_release);
+            auto* pExecutablePayload = s_thunks[thunkIndex];
+#else
             const auto funcAddr = reinterpret_cast<uintptr_t>(&FunctionOverride::HandleOverridenFunction);
 
             const OverrideCodegen codegen(reinterpret_cast<uintptr_t>(pRealFunction), funcAddr);
 
             using TNativeScriptFunction = void (*)(RED4ext::IScriptable*, RED4ext::CStackFrame*, void*, int64_t);
             auto* pExecutablePayload = reinterpret_cast<TNativeScriptFunction>(MakeExecutable(codegen.getCode(), codegen.getSize()));
+#endif
 
             if (pRealFunction->flags.isStatic)
             {
@@ -700,7 +836,7 @@ void FunctionOverride::ApplyOverride(
         pEntry = &itor.value();
     }
 
-    if (aFunction != sol::nil)
+    if (aFunction != sol::lua_nil)
     {
         auto pContext = TiltedPhoques::MakeUnique<Context>();
         pContext->ScriptFunction = std::move(aFunction);

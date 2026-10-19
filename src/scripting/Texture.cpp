@@ -20,6 +20,8 @@ void Texture::BindTexture(sol::table& aTable)
             [](const Texture& acTexture, ImVec2 aSize) { ImGuiImage(acTexture, aSize); }, [](const Texture& acTexture) { ImGuiImage(acTexture); }));
 }
 
+// On macOS Load, ImGuiImage and Release are in Texture_Metal.mm.
+#ifndef __APPLE__
 std::shared_ptr<Texture> Texture::Load(const std::string& acPath)
 {
     auto d3d_device = CET::Get().GetD3D12().GetDevice();
@@ -197,12 +199,16 @@ void Texture::ImGuiImage(const Texture& acTexture, ImVec2 aSize, const ImVec2& a
     ImGui::Image(reinterpret_cast<ImTextureID>(acTexture.m_handle.ptr), aSize, aUv0, aUv1, aTintCol, aBorderCol);
 }
 
+#endif
+
 ImVec2 Texture::GetSize() const
 {
     return m_size;
 }
 
+#ifndef __APPLE__
 void Texture::Release()
 {
     m_texture = nullptr;
 }
+#endif

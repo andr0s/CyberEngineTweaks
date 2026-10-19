@@ -8,7 +8,13 @@ typedef TweakDBID TDBID;
 struct UnknownString;
 
 using TSetMousePosition = BOOL(void*, HWND, long, long);
+#ifdef __APPLE__
+// macOS 2.3.1: TweakDBID Derive(const TweakDBID* base, const char* name), the result returned in x0
+// (RED4ext.SDK-macos docs/ADDRESS_AUDIT.md, TweakDBID_Derive). The Windows (base, out, name) form does not exist there.
+using TTDBIDCtorDerive = uint64_t(const TDBID*, const char*);
+#else
 using TTDBIDCtorDerive = TDBID*(const TDBID*, TDBID*, const char*);
+#endif
 using TRunningStateRun = bool(uintptr_t, uintptr_t);
 using TShutdownStateRun = bool(uintptr_t, uintptr_t);
 using TSetLoadingState = uintptr_t(uintptr_t, int);
@@ -63,13 +69,26 @@ struct LuaVM
     void PostInitializeTweakDB();
     void PostInitializeMods();
 
+#ifdef __APPLE__
+    // macOS lifecycle (see LuaVM_Hooks.cpp). The Windows build gets these moments from hooks on script bytecode
+    // translation and on PlayerSystem::OnPlayerMainObjectSpawned, whose macOS addresses are not verified; the macOS
+    // build derives them from RED4ext's game states, the TweakDB load hook and a script observer instead.
+    void OnBaseInitialization();
+    void OnRunningEnter();
+    void OnRunningUpdate();
+#endif
+
 protected:
     void Hook();
 
     static void HookLog(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack, void*, void*);
     static void HookLogChannel(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack, void*, void*);
     static void HookTDBIDToStringDEBUG(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack, void* apResult, void*);
+#ifdef __APPLE__
+    static uint64_t HookTDBIDCtorDerive(const TDBID* apBase, const char* acpName);
+#else
     static TDBID* HookTDBIDCtorDerive(TDBID* apBase, TDBID* apThis, const char* acpName);
+#endif
     static uintptr_t HookSetLoadingState(uintptr_t aThis, int aState);
     static uint64_t HookTweakDBLoad(uintptr_t aThis, uintptr_t aParam);
     static void HookTranslateBytecode(uintptr_t aBinder, uintptr_t aData);
@@ -98,6 +117,23 @@ private:
     bool m_initialized{false};
     bool m_drawBlocked{false};
     bool m_reload{false};
+
+#ifdef __APPLE__
+public:
+    void OnScriptRuntimeInitialized();
+
+private:
+    void HookInitializeScriptRuntime();
+    void TryPostInitialize();
+    [[nodiscard]] static bool AreScriptsBound();
+    void HookScriptLogHandlers();
+
+    bool m_luaInitialized{false};
+    bool m_scriptingPostInitialized{false};
+    bool m_tweakDBLoaded{false};
+    bool m_tweakDBPostInitialized{false};
+    std::atomic_bool m_playerAttached{false};
+#endif
 
     D3D12& m_d3d12;
     std::chrono::time_point<std::chrono::high_resolution_clock> m_lastframe{std::chrono::high_resolution_clock::now()};

@@ -8,11 +8,16 @@ bool DumpVTablesTask::Run()
 {
     TiltedPhoques::Map<uintptr_t, std::string> vtableMap;
 
+#ifdef __APPLE__
+    // vtables live in __DATA_CONST: accept anything inside the game image
+    const auto [begin, end] = Platform::GetGameImageRange();
+#else
     auto ModuleBase = GetModuleHandle(nullptr);
     auto begin = reinterpret_cast<uintptr_t>(ModuleBase);
     const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(ModuleBase);
     const auto* ntHeader = reinterpret_cast<const IMAGE_NT_HEADERS*>(reinterpret_cast<const std::uint8_t*>(dosHeader) + dosHeader->e_lfanew);
     uintptr_t end = begin + ntHeader->OptionalHeader.SizeOfCode + ntHeader->OptionalHeader.SizeOfInitializedData;
+#endif
 
     const auto* pRttiSystem = RED4ext::CRTTISystem::Get();
 

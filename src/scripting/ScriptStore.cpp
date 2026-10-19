@@ -36,7 +36,14 @@ void ScriptStore::LoadAll()
         const auto name = UTF16ToUTF8(file.path().filename().native());
         const auto pathStr = UTF16ToUTF8((cModsRoot / file.path()).native());
 
+#ifdef __APPLE__
+        // "cet" is reserved; APFS is case-insensitive by default, so "CET" is the same folder.
+        auto lowerName = name;
+        std::ranges::transform(lowerName, lowerName.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (lowerName == "cet")
+#else
         if (file.path().native().starts_with(L"cet\\"))
+#endif
         {
             consoleLogger->warn("Ignoring mod using reserved name! ('{}')", pathStr);
             continue;
@@ -153,5 +160,5 @@ sol::object ScriptStore::GetMod(const std::string& acName) const
     if (it != m_contexts.cend())
         return it->second.GetRootObject();
 
-    return sol::nil;
+    return sol::lua_nil;
 }

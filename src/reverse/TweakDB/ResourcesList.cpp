@@ -27,6 +27,16 @@ bool ResourcesList::Initialize()
 
     // TODO - share decompression routine with TweakDBMetadata
 
+#ifdef __APPLE__
+    // The macOS game links Oodle statically and does not export it; without it the resource list (used only by the
+    // TweakDB editor) stays empty.
+    auto OodleLZ_Decompress = reinterpret_cast<TOodleLZ_Decompress>(dlsym(RTLD_DEFAULT, "OodleLZ_Decompress"));
+    if (OodleLZ_Decompress == nullptr)
+    {
+        spdlog::warn("OodleLZ_Decompress is not available on macOS; TweakDB editor resource names are disabled");
+        return false;
+    }
+#else
     auto hOodleHandle = GetModuleHandle(TEXT("oo2ext_7_win64.dll"));
     if (hOodleHandle == nullptr)
     {
@@ -40,6 +50,7 @@ bool ResourcesList::Initialize()
         spdlog::error("Could not get OodleLZ_Decompress");
         return false;
     }
+#endif
 
     auto filepath = GetAbsolutePath(c_defaultFilename, CET::Get().GetPaths().TweakDB(), false, true);
     if (!exists(filepath))
@@ -58,10 +69,11 @@ bool ResourcesList::Initialize()
         std::string buffer;
         buffer.resize(*reinterpret_cast<uint32_t*>(content.data() + 4));
 
-        char workingMemory[0x80000];
+        // On the heap: 512 KiB is the whole stack of a secondary thread on macOS (this runs on one).
+            std::vector<char> workingMemory(0x80000);
         auto size = OodleLZ_Decompress(
             content.data() + headerSize, static_cast<int>(content.size() - headerSize), buffer.data(), static_cast<int>(buffer.size()), 1, 1, 0, nullptr, nullptr, nullptr, nullptr,
-            workingMemory, std::size(workingMemory), 3);
+            workingMemory.data(), workingMemory.size(), 3);
 
         assert(size == buffer.size());
         if (size != buffer.size())

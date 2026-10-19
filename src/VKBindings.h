@@ -79,12 +79,22 @@ struct VKBindings
     [[nodiscard]] bool IsRecordingBind() const;
     [[nodiscard]] uint64_t GetLastRecordingResult() const;
 
+#ifdef __APPLE__
+    // Input from the game window, delivered by platform/macos/InputMac.mm on the main thread. Like the Windows raw
+    // input path, bindings only observe input; they never swallow it.
+    void OnMacKey(USHORT aVKCode, bool aDown);
+    void OnMacWheel(bool aHorizontal, bool aPositive);
+    void OnMacFocusLost();
+#else
     LRESULT OnWndProc(HWND ahWnd, UINT auMsg, WPARAM awParam, LPARAM alParam);
+#endif
 
     void SetVM(const LuaVM* acpVm);
 
 private:
+#ifndef __APPLE__
     [[nodiscard]] LRESULT HandleRAWInput(HRAWINPUT achRAWInput);
+#endif
 
     LRESULT RecordKeyDown(const USHORT acVKCode);
     LRESULT RecordKeyUp(const USHORT acVKCode);

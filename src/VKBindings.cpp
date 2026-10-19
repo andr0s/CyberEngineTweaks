@@ -165,7 +165,9 @@ void VKBindings::Load()
     const auto path = GetAbsolutePath(m_paths.VKBindings(), "", false);
     if (std::ifstream ifs{path})
     {
-        auto config{nlohmann::json::parse(ifs, nullptr, false)};
+        // Not brace-initialized: with clang, json{json} picks the initializer-list constructor and wraps the
+        // document in a one-element array, and a saved binding then fails to load ("type must be number").
+        auto config = nlohmann::json::parse(ifs, nullptr, false);
         if (!config.is_discarded())
         {
             for (auto& mod : config.items())
@@ -534,6 +536,42 @@ const char* VKBindings::GetSpecialKeyName(const USHORT acVKCode)
     }
 }
 
+#ifdef __APPLE__
+void VKBindings::OnMacKey(const USHORT aVKCode, const bool aDown)
+{
+    if (!m_initialized)
+        return; // we have not yet fully initialized!
+
+    const bool isMouseButton = aVKCode == VK_LBUTTON || aVKCode == VK_RBUTTON || aVKCode == VK_MBUTTON || aVKCode == VK_XBUTTON1 || aVKCode == VK_XBUTTON2;
+    if (isMouseButton && m_isBindRecording && m_recordingModBind == Bindings::GetOverlayToggleModBind())
+        return; // ignore mouse keys for toolbar key binding!
+
+    if (aDown)
+        RecordKeyDown(aVKCode);
+    else
+        RecordKeyUp(aVKCode);
+}
+
+void VKBindings::OnMacWheel(const bool aHorizontal, const bool aPositive)
+{
+    if (!m_initialized)
+        return;
+
+    if (m_isBindRecording && m_recordingModBind == Bindings::GetOverlayToggleModBind())
+        return; // ignore mouse keys for toolbar key binding!
+
+    const auto key = static_cast<USHORT>((aHorizontal ? RI_MOUSE_HWHEEL : RI_MOUSE_WHEEL) | (aPositive ? 1 : 0));
+    RecordKeyDown(key);
+    RecordKeyUp(key);
+}
+
+void VKBindings::OnMacFocusLost()
+{
+    // reset key states on focus loss, as otherwise, we end up with broken recording state
+    m_keyStates.reset();
+    ClearRecording(false);
+}
+#else
 LRESULT VKBindings::OnWndProc(HWND, UINT auMsg, WPARAM, LPARAM alParam)
 {
     if (!m_initialized)
@@ -550,6 +588,7 @@ LRESULT VKBindings::OnWndProc(HWND, UINT auMsg, WPARAM, LPARAM alParam)
 
     return 0;
 }
+#endif
 
 LRESULT VKBindings::RecordKeyDown(const USHORT acVKCode)
 {
@@ -693,6 +732,7 @@ void VKBindings::ExecuteRecording()
     }
 }
 
+#ifndef __APPLE__
 LRESULT VKBindings::HandleRAWInput(const HRAWINPUT achRAWInput)
 {
     UINT dwSize{0};
@@ -749,6 +789,7 @@ LRESULT VKBindings::HandleRAWInput(const HRAWINPUT achRAWInput)
 
     return 0;
 }
+#endif
 
 void VKBindings::ClearRecording(const bool acClearBind)
 {

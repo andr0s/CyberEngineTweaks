@@ -14,7 +14,7 @@ template <class T, FixedString REDName> struct LuaRED
             constexpr auto format{std::is_signed_v<T> ? "return {}ll" : "return {}ull"};
             auto res{aLua.Get().script(fmt::format(format, *static_cast<T*>(aResult.value)))};
             assert(res.valid());
-            return res.get<sol::object>();
+            return res.template get<sol::object>();
         }
         else
         {
@@ -26,7 +26,7 @@ template <class T, FixedString REDName> struct LuaRED
     {
         RED4ext::CStackType result;
         result.type = m_pRtti;
-        if (aObject == sol::nil)
+        if (aObject == sol::lua_nil)
         {
             result.value = apAllocator->New<T>();
         }

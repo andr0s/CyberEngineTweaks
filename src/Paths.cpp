@@ -52,11 +52,19 @@ const std::filesystem::path& Paths::TweakDB() const
 
 Paths::Paths()
 {
+#ifdef __APPLE__
+    // <game>/Cyberpunk2077.app/Contents/MacOS/Cyberpunk2077. CET keeps its Windows layout under <game>/bin/x64, so mods
+    // packaged for Windows (bin/x64/plugins/cyber_engine_tweaks/mods/...) install unchanged.
+    m_exe = Platform::GetExecutablePath();
+
+    m_gameRoot = m_exe.parent_path().parent_path().parent_path().parent_path() / "bin" / "x64";
+#else
     TCHAR exePathBuf[MAX_PATH] = {0};
     GetModuleFileName(GetModuleHandle(nullptr), exePathBuf, static_cast<DWORD>(std::size(exePathBuf)));
     m_exe = exePathBuf;
 
     m_gameRoot = m_exe.parent_path();
+#endif
 
     m_cetRoot = m_gameRoot;
     m_cetRoot /= L"plugins";

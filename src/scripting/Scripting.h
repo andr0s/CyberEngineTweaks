@@ -39,6 +39,11 @@ struct Scripting
 
     LuaSandbox& GetSandbox();
     LockedState GetLockedState() const noexcept;
+
+#ifdef __APPLE__
+    // Calls aCallback after each PlayerPuppet::OnGameAttached (an internal observer, like RegisterOverrides).
+    void ObservePlayerAttached(std::function<void()> aCallback);
+#endif
     const std::filesystem::path& GameRoot() const { return m_paths.GameRoot(); }
 
     static size_t Size(RED4ext::CBaseRTTIType* apRttiType);

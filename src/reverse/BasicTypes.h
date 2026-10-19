@@ -165,6 +165,12 @@ struct TweakDBID
 
 static_assert(sizeof(TweakDBID) == 8);
 
+#ifdef __APPLE__
+// macOS ships no tweakdbstr.kark, so TDBID.ToStringDEBUG only knows the names CET saw as strings. Called where Lua turns
+// a string into a TweakDBID (never under the lookup's lock).
+void RememberTweakDBIDName(const TweakDBID& acId, uint64_t aBase, const std::string& acName);
+#endif
+
 struct ItemID
 {
     ItemID() = default;

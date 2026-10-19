@@ -4,11 +4,17 @@
 #include <mutex>
 #include <sstream>
 
+#ifdef _WIN32
 #include <Windows.h>
+#endif
 
 #include <RED4ext/Common.hpp>
 #include <RED4ext/Detail/Memory.hpp>
 
+// On Windows CET resolves address hashes through its own loader (version.dll). On macOS CET is a RED4ext plugin and
+// uses the SDK's default resolver: RED4ext_ResolveAddress from RED4ext.dylib, which only resolves addresses verified
+// for the running game build and returns 0 for everything else.
+#ifdef _WIN32
 template<>
 struct RED4ext::Detail::AddressResolverOverride<uint32_t> : std::true_type
 {
@@ -66,3 +72,4 @@ struct RED4ext::Detail::AddressResolverOverride<uint32_t> : std::true_type
         return reinterpret_cast<uintptr_t>(address);
     }
 };
+#endif

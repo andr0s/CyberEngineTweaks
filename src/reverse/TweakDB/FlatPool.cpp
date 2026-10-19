@@ -234,9 +234,9 @@ uint64_t FlatPool::Hash(const RED4ext::CBaseRTTIType* aType, RED4ext::ScriptInst
         {
             const auto* array = static_cast<RED4ext::DynArray<RED4ext::CString>*>(aValue);
             hash = RED4ext::FNV1a64(reinterpret_cast<uint8_t*>(0), 0); // Initial seed
-            for (uint32_t i = 0; i != array->size; ++i)
+            for (uint32_t i = 0; i != RedSize(*array); ++i)
             {
-                const auto* str = array->entries + i;
+                const auto* str = RedData(*array) + i;
                 const auto length = str->Length();
                 hash = RED4ext::FNV1a64(reinterpret_cast<const uint8_t*>(&length), sizeof(length), hash);
                 hash = RED4ext::FNV1a64(reinterpret_cast<const uint8_t*>(str->c_str()), length, hash);
@@ -245,7 +245,7 @@ uint64_t FlatPool::Hash(const RED4ext::CBaseRTTIType* aType, RED4ext::ScriptInst
         else
         {
             const auto* array = static_cast<RED4ext::DynArray<uint8_t>*>(aValue);
-            hash = RED4ext::FNV1a64(array->entries, array->size * innerType->GetSize());
+            hash = RED4ext::FNV1a64(RedData(*array), RedSize(*array) * innerType->GetSize());
         }
     }
     else if (aType->GetName() == "String")

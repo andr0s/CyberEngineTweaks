@@ -160,13 +160,93 @@ void Scripting::Initialize()
     m_store.LoadAll();
 }
 
+#ifdef __APPLE__
+// CET's exEntitySpawner drives the game's entity spawner through Windows-only structures and is not ported (see
+// macos/PORT_NOTES.md). Mods that use it (AMM, BT-7274, ...) get the same three calls on top of Codeware's
+// DynamicEntitySystem, which spawns from a template path or a record the same way. Without Codeware, Spawn returns nil.
+static void RegisterEntitySpawnerShim(sol::state& aLuaVm, sol::table& aGlobals)
+{
+    // Runs like a mod: names resolve through the sandbox globals, so it sees exactly the API mods see.
+    sol::environment env(aLuaVm, sol::create);
+    sol::table meta(aLuaVm, sol::create);
+    meta["__index"] = aGlobals;
+    env[sol::metatable_key] = meta;
+
+    constexpr auto cCode = R"(
+local function system()
+  if not DynamicEntitySpec then return nil end
+  return Game.GetDynamicEntitySystem()
+end
+
+-- WorldTransform has no GetPosition() here: its WorldPosition holds fixed-point coordinates (17 fraction bits).
+local function position(transform)
+  local p = transform.Position
+  return Vector4.new(p.x.Bits / 131072.0, p.y.Bits / 131072.0, p.z.Bits / 131072.0, 1.0)
+end
+
+local function spec(transform, appearance)
+  local s = DynamicEntitySpec.new()
+  s.persistState = false
+  s.persistSpawn = false
+  s.alwaysSpawned = true
+  s.spawnInView = true
+  s.position = position(transform)
+  s.orientation = transform.Orientation
+  if appearance and appearance ~= "" then s.appearanceName = appearance end
+  return s
+end
+
+local function record(id)
+  if type(id) == "string" then return TweakDBID.new(id) end
+  return id
+end
+
+local spawner = {}
+
+function spawner.Spawn(entityPath, transform, appearance, recordID)
+  local des = system()
+  if not des then return nil end
+  local s = spec(transform, appearance)
+  s.templatePath = entityPath
+  if recordID and recordID ~= "" then s.recordID = record(recordID) end
+  return des:CreateEntity(s)
+end
+
+function spawner.SpawnRecord(recordID, transform, appearance)
+  local des = system()
+  if not des then return nil end
+  local s = spec(transform, appearance)
+  s.recordID = record(recordID)
+  return des:CreateEntity(s)
+end
+
+function spawner.Despawn(entity)
+  local des = system()
+  if des and entity then des:DeleteEntity(entity:GetEntityID()) end
+end
+
+return spawner
+)";
+
+    auto result = aLuaVm.safe_script(cCode, env, sol::script_pass_on_error, "exEntitySpawner (macOS)", sol::load_mode::text);
+    if (!result.valid())
+    {
+        const sol::error cError = result;
+        Log::Error("exEntitySpawner for macOS could not be created: {}", cError.what());
+        return;
+    }
+    aGlobals["exEntitySpawner"] = result.get<sol::table>();
+    Log::Info("exEntitySpawner: provided on top of Codeware's DynamicEntitySystem");
+}
+#endif
+
 void Scripting::PostInitializeScripting()
 {
     auto lua = m_lua.Lock();
     auto& luaVm = lua.Get();
     auto& globals = m_sandbox.GetGlobals();
 
-    if (luaVm["__Game"] != sol::nil)
+    if (luaVm["__Game"] != sol::lua_nil)
     {
         m_mapper.Refresh();
         m_override.Refresh();
@@ -289,12 +369,35 @@ void Scripting::PostInitializeScripting()
         return CName{table["hash_lo"].get_or<uint32_t>(0), table["hash_hi"].get_or<uint32_t>(0)};
     };
 
+#ifdef __APPLE__
+    // TweakDBID.new("name") and TweakDBID("name") also remember the name for TDBID.ToStringDEBUG (RememberTweakDBIDName).
+    const auto cFromName = [](const std::string& acName)
+    {
+        const TweakDBID cId(acName);
+        RememberTweakDBIDName(cId, 0, acName);
+        return cId;
+    };
+    const auto cFromBase = [](const TweakDBID& acBase, const std::string& acName)
+    {
+        const TweakDBID cId(acBase, acName);
+        RememberTweakDBIDName(cId, acBase.value, acName);
+        return cId;
+    };
+    globals.new_usertype<TweakDBID>(
+        "TweakDBID", "new",
+        sol::factories(cFromName, cFromBase, [](uint32_t aHash, uint8_t aLength) { return TweakDBID(aHash, aLength); },
+                       [](const TweakDBID& acOther) { return TweakDBID(acOther); }, [] { return TweakDBID(); }),
+        sol::call_constructor, sol::factories(cFromName), sol::meta_function::to_string, &TweakDBID::ToString, sol::meta_function::equal_to,
+        &TweakDBID::operator==, sol::meta_function::addition, &TweakDBID::operator+, sol::meta_function::concatenation, &TweakDBID::operator+, "hash", &TweakDBID::name_hash,
+        "length", &TweakDBID::name_length, "value", sol::property(&TweakDBID::AsString));
+#else
     globals.new_usertype<TweakDBID>(
         "TweakDBID",
         sol::constructors<TweakDBID(const std::string&), TweakDBID(const TweakDBID&, const std::string&), TweakDBID(uint32_t, uint8_t), TweakDBID(const TweakDBID&), TweakDBID()>(),
         sol::call_constructor, sol::constructors<TweakDBID(const std::string&)>(), sol::meta_function::to_string, &TweakDBID::ToString, sol::meta_function::equal_to,
         &TweakDBID::operator==, sol::meta_function::addition, &TweakDBID::operator+, sol::meta_function::concatenation, &TweakDBID::operator+, "hash", &TweakDBID::name_hash,
         "length", &TweakDBID::name_length, "value", sol::property(&TweakDBID::AsString));
+#endif
 
     globals["ToTweakDBID"] = [](sol::table table) -> TweakDBID
     {
@@ -339,7 +442,7 @@ void Scripting::PostInitializeScripting()
                 sol::state_view lua(aState);
                 gamedataLocKeyWrapper result(0);
 
-                if (aValue != sol::nil)
+                if (aValue != sol::lua_nil)
                 {
                     if (aValue.get_type() == sol::type::number)
                     {
@@ -417,7 +520,7 @@ void Scripting::PostInitializeScripting()
             const sol::environment cEnv = aEnv;
             const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
             logger->info("Type '{}' not found.", acName);
-            return sol::nil;
+            return sol::lua_nil;
         }
 
         // Always try to return instance wrapped in Handle<> if the type allows it.
@@ -491,6 +594,10 @@ void Scripting::PostInitializeScripting()
 
     m_mapper.Register();
 
+#ifdef __APPLE__
+    RegisterEntitySpawnerShim(luaVm, globals);
+#endif
+
     m_sandbox.PostInitializeScripting();
     m_sandbox.PostInitializeMods();
 
@@ -552,10 +659,21 @@ void Scripting::RegisterOverrides()
         registerInputListener(aSelf, aSelf);
     };
 
-    m_override.Override("PlayerPuppet", "GracePeriodAfterSpawn", luaVm["RegisterGlobalInputListener"], sol::nil, false, false, true);
-    m_override.Override("PlayerPuppet", "OnDetach", sol::nil, sol::nil, false, false, true);
-    m_override.Override("QuestTrackerGameController", "OnUninitialize", sol::nil, sol::nil, false, false, true);
+    m_override.Override("PlayerPuppet", "GracePeriodAfterSpawn", luaVm["RegisterGlobalInputListener"], sol::lua_nil, false, false, true);
+    m_override.Override("PlayerPuppet", "OnDetach", sol::lua_nil, sol::lua_nil, false, false, true);
+    m_override.Override("QuestTrackerGameController", "OnUninitialize", sol::lua_nil, sol::lua_nil, false, false, true);
 }
+
+#ifdef __APPLE__
+void Scripting::ObservePlayerAttached(std::function<void()> aCallback)
+{
+    auto lua = m_lua.Lock();
+    auto& luaVm = lua.Get();
+
+    sol::function callback = MakeSolFunction(luaVm, [aCallback](sol::variadic_args) { aCallback(); });
+    m_override.Override("PlayerPuppet", "OnGameAttached", callback, m_sandbox[0].GetEnvironment(), false, true, false);
+}
+#endif
 
 const VKBind* Scripting::GetBind(const VKModBind& acModBind) const
 {
@@ -701,7 +819,7 @@ sol::object Scripting::Index(const std::string& acName, sol::this_state aState, 
             logger->error("Error: {}", errorMessage);
         }
 
-        return sol::nil;
+        return sol::lua_nil;
     }
 
     auto& property = m_properties[acName];
@@ -725,7 +843,7 @@ sol::object Scripting::GetSingletonHandle(const std::string& acName, sol::this_e
         const sol::environment cEnv = aThisEnv;
         const auto logger = cEnv["__logger"].get<std::shared_ptr<spdlog::logger>>();
         logger->info("Type '{}' not found.", acName);
-        return sol::nil;
+        return sol::lua_nil;
     }
 
     const auto result = m_singletons.emplace(std::make_pair(acName, SingletonReference{m_lua.AsRef(), pType}));
@@ -751,13 +869,13 @@ sol::object Scripting::ToLua(LockedState& aState, RED4ext::CStackType& aResult)
     const auto& state = aState.Get();
 
     if (pType == nullptr)
-        return sol::nil;
+        return sol::lua_nil;
     if (pType == s_stringType)
         return make_object(state, std::string(static_cast<RED4ext::CString*>(aResult.value)->c_str()));
     if (pType->GetType() == RED4ext::ERTTIType::Handle)
     {
         if (aResult.value == nullptr)
-            return sol::nil;
+            return sol::lua_nil;
 
         const auto handle = *static_cast<RED4ext::Handle<RED4ext::IScriptable>*>(aResult.value);
         if (handle)
@@ -802,18 +920,18 @@ sol::object Scripting::ToLua(LockedState& aState, RED4ext::CStackType& aResult)
     else
     {
         auto result = Converter::ToLua(aResult, aState);
-        if (result != sol::nil)
+        if (result != sol::lua_nil)
             return result;
     }
 
-    return sol::nil;
+    return sol::lua_nil;
 }
 
 RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType* apRttiType, TiltedPhoques::Allocator* apAllocator)
 {
     RED4ext::CStackType result;
 
-    const bool hasData = aObject != sol::nil;
+    const bool hasData = aObject != sol::lua_nil;
 
     if (apRttiType)
     {

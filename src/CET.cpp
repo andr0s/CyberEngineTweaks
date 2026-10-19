@@ -47,6 +47,13 @@ D3D12& CET::GetD3D12() noexcept
     return m_d3d12;
 }
 
+#ifdef __APPLE__
+Window& CET::GetWindow() noexcept
+{
+    return m_window;
+}
+#endif
+
 VKBindings& CET::GetBindings() noexcept
 {
     return m_bindings;

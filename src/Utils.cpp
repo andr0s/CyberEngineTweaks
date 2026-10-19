@@ -2,6 +2,10 @@
 
 #include "Utils.h"
 
+#ifdef __APPLE__
+#include <platform/macos/Utf.h>
+#endif
+
 #include <spdlog/sinks/rotating_file_sink.h>
 
 void ltrim(std::string& s)
@@ -20,6 +24,22 @@ void trim(std::string& s)
     rtrim(s);
 }
 
+#ifdef __APPLE__
+std::string UTF16ToUTF8(std::wstring_view utf16)
+{
+    return Utf::FromWide(utf16);
+}
+
+std::string UTF16ToUTF8(std::string_view utf8)
+{
+    return std::string(utf8);
+}
+
+std::wstring UTF8ToUTF16(std::string_view utf8)
+{
+    return Utf::ToWide(utf8);
+}
+#else
 std::string UTF16ToUTF8(std::wstring_view utf16)
 {
     const auto utf16Length = static_cast<int>(utf16.length());
@@ -47,6 +67,7 @@ std::wstring UTF8ToUTF16(std::string_view utf8)
 
     return utf16;
 }
+#endif
 
 template <typename Mutex> class CustomSink final : public spdlog::sinks::base_sink<Mutex>
 {
@@ -124,7 +145,7 @@ std::shared_ptr<spdlog::logger> CreateLogger(
 // deep copies sol object (doesnt take into account potential duplicates)
 sol::object DeepCopySolObject(const sol::object& acpObj, const sol::state_view& acpStateView)
 {
-    if (acpObj == sol::nil || acpObj.get_type() != sol::type::table)
+    if (acpObj == sol::lua_nil || acpObj.get_type() != sol::type::table)
         return acpObj;
     sol::table src = acpObj;
     sol::table copy{acpStateView, sol::create};
@@ -161,7 +182,7 @@ void MakeSolUsertypeImmutable(const sol::object& acpObj, const sol::state_view& 
     // prevent overriding metatable
     metatable[sol::meta_function::metatable] = []
     {
-        return sol::nil;
+        return sol::lua_nil;
     };
 }
 

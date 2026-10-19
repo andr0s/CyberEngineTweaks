@@ -10,6 +10,12 @@ struct GameMainThread
     void AddShutdownTask(const std::function<bool()>& aFunction);
     void AddGenericTask(const std::function<bool()>& aFunction);
 
+#ifdef __APPLE__
+    // RED4ext calls this from its game-state callbacks (see platform/macos/PluginMain.cpp) on the game's main thread,
+    // once per tick of the given state. Returns true when the state's task queue is empty.
+    bool DrainState(RED4ext::EGameStateType aState);
+#endif
+
 private:
     GameMainThread() = default;
 
@@ -22,12 +28,16 @@ private:
     {
         void AddTask(const std::function<bool()>& aFunction);
         void Drain();
+        bool Empty();
 
     private:
         std::recursive_mutex m_mutex;
         TiltedPhoques::Vector<std::function<bool()>> m_tasks;
     };
 
+#ifdef __APPLE__
+    std::array<RepeatedTaskQueue, 4> m_stateTasks;
+#else
     struct StateTickOverride
     {
         StateTickOverride(uint32_t aHash, const char* acpRealFunctionName);
@@ -45,6 +55,7 @@ private:
         StateTickOverride(CyberEngineTweaks::AddressHashes::CInitializationState_OnTick, "CInitializationState::OnTick"),
         StateTickOverride(CyberEngineTweaks::AddressHashes::CRunningState_OnTick, "CRunningState::OnTick"),
         StateTickOverride(CyberEngineTweaks::AddressHashes::CShutdownState_OnTick, "CShutdownState::OnTick")};
+#endif
 
     RepeatedTaskQueue m_genericQueue;
 };

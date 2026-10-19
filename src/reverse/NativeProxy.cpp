@@ -162,7 +162,7 @@ void NativeProxy::Callback(RED4ext::IScriptable* apSelf, RED4ext::CStackFrame* a
     auto& luaState = lockedState.Get();
 
     TiltedPhoques::Vector<sol::object> args(0);
-    args.reserve(apFrame->func->params.size);
+    args.reserve(RedSize(apFrame->func->params));
 
     for (const auto& param : apFrame->func->params)
     {
@@ -354,12 +354,20 @@ RED4ext::Handle<RED4ext::IScriptable> NativeProxyType::CreateHandle()
     return RED4ext::Handle<RED4ext::IScriptable>(pScriptable);
 }
 
+#ifdef __APPLE__
+bool NativeProxyType::IsEqual(const void* aLhs, const void* aRhs, uint32_t a3)
+#else
 const bool NativeProxyType::IsEqual(const RED4ext::ScriptInstance aLhs, const RED4ext::ScriptInstance aRhs, uint32_t a3)
+#endif
 {
     return !parent->flags.isAbstract && parent->IsEqual(aLhs, aRhs);
 }
 
+#ifdef __APPLE__
+void NativeProxyType::Assign(void* aLhs, const void* aRhs) const
+#else
 void NativeProxyType::Assign(RED4ext::ScriptInstance aLhs, const RED4ext::ScriptInstance aRhs) const
+#endif
 {
     if (!parent->flags.isAbstract)
     {

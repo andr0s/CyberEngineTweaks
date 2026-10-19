@@ -43,7 +43,7 @@ size_t Converter::Size(RED4ext::CBaseRTTIType* apRtti)
 
 sol::object Converter::ToLua(RED4ext::CStackType& aResult, TiltedPhoques::Locked<sol::state, std::recursive_mutex>& aLua)
 {
-    sol::object o = sol::nil;
+    sol::object o = sol::lua_nil;
     auto initLuaObject = [&](auto& x)
     {
         if (x.Is(aResult.type))

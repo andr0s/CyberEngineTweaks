@@ -3,7 +3,9 @@
 #include "config/CETVersion.h"
 #include "Paths.h"
 #include "Utils.h"
+#ifdef _WIN32
 #include "RED4ext/Api/Runtime.hpp"
+#endif
 
 void PatchesSettings::Load(const nlohmann::json& aConfig)
 {
@@ -132,6 +134,33 @@ void Options::ResetToDefaults()
 Options::Options(Paths& aPaths)
     : m_paths(aPaths)
 {
+#ifdef __APPLE__
+    ExeValid = aPaths.Executable().filename() == "Cyberpunk2077" && Platform::GetGameBundleName() == "Cyberpunk2077";
+    if (!ExeValid)
+        throw std::runtime_error("Not Cyberpunk2077");
+
+    set_default_logger(CreateLogger(GetAbsolutePath(L"cyber_engine_tweaks.log", m_paths.CETRoot(), true), "main", nullptr, "[%Y-%m-%d %H:%M:%S UTC%z] [%l] [%!] [%t] %v"));
+
+    Log::Info("Cyber Engine Tweaks (macOS) is starting...");
+
+    GameImage.Initialize();
+
+    Log::Info("CET version {}", CET_VERSION_FULL);
+    std::string uuid;
+    for (const auto byte : GameImage.UUID)
+        uuid += fmt::format("{:02X}", byte);
+    Log::Info("Game version {} (bundle), executable UUID {}", GameImage.BundleVersion, uuid);
+    Log::Info("Root path: \"{}\"", aPaths.GameRoot().string());
+    Log::Info("Cyber Engine Tweaks path: \"{}\"", aPaths.CETRoot().string());
+    Log::Info("Lua scripts search path: \"{}\"", aPaths.ModsRoot().string());
+
+    if (!GameImage.IsSupported)
+    {
+        const auto [smajor, sminor] = Image::GetSupportedVersion();
+        Log::Error("Unsupported game build! Only {}.{:02d} ({}) from Steam is supported.", smajor, sminor, Image::SupportedBundleVersion);
+        throw std::runtime_error("Unsupported version");
+    }
+#else
     const auto* exePathStr = aPaths.Executable().native().c_str();
     const auto verInfoSz = GetFileVersionInfoSize(exePathStr, nullptr);
     if (verInfoSz)
@@ -196,6 +225,7 @@ Options::Options(Paths& aPaths)
         Log::Info("Unknown Game Version, update the mod");
         throw std::runtime_error("Unknown version");
     }
+#endif
 
     Load();
     Save();

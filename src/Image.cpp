@@ -4,6 +4,16 @@
 
 #include "Image.h"
 
+#ifdef __APPLE__
+void Image::Initialize()
+{
+    BundleVersion = Platform::GetGameBundleVersion();
+    if (const auto uuid = Platform::GetGameUUID())
+        UUID = *uuid;
+
+    IsSupported = BundleVersion == SupportedBundleVersion && UUID == SupportedUUID;
+}
+#else
 #include "RED4ext/Api/FileVer.hpp"
 
 
@@ -110,3 +120,4 @@ void Image::Initialize()
         }
     }
 }
+#endif

@@ -167,7 +167,7 @@ sol::function RTTIHelper::GetResolvedFunction(const uint64_t acClassHash, const 
             return classFuncs.at(acFuncHash);
     }
 
-    return sol::nil;
+    return sol::lua_nil;
 }
 
 // Add global function to resolved map
@@ -216,16 +216,16 @@ RED4ext::CBaseFunction* RTTIHelper::FindFunction(RED4ext::CClass* apClass, const
                 return extendedFuncs.at(acFullNameHash);
         }
 
-        for (uint32_t i = 0; i < apClass->funcs.size; ++i)
+        for (uint32_t i = 0; i < RedSize(apClass->funcs); ++i)
         {
-            if (apClass->funcs.entries[i]->fullName.hash == acFullNameHash)
-                return apClass->funcs.entries[i];
+            if (RedData(apClass->funcs)[i]->fullName.hash == acFullNameHash)
+                return RedData(apClass->funcs)[i];
         }
 
-        for (uint32_t i = 0; i < apClass->staticFuncs.size; ++i)
+        for (uint32_t i = 0; i < RedSize(apClass->staticFuncs); ++i)
         {
-            if (apClass->staticFuncs.entries[i]->fullName.hash == acFullNameHash)
-                return apClass->staticFuncs.entries[i];
+            if (RedData(apClass->staticFuncs)[i]->fullName.hash == acFullNameHash)
+                return RedData(apClass->staticFuncs)[i];
         }
 
         apClass = apClass->parent;
@@ -269,18 +269,18 @@ std::map<uint64_t, RED4ext::CBaseFunction*> RTTIHelper::FindFunctions(RED4ext::C
     {
         if (aIsMember)
         {
-            for (uint32_t i = 0; i < apClass->funcs.size; ++i)
+            for (uint32_t i = 0; i < RedSize(apClass->funcs); ++i)
             {
-                if (apClass->funcs.entries[i]->shortName.hash == acShortNameHash)
-                    results.emplace(apClass->funcs.entries[i]->fullName.hash, apClass->funcs.entries[i]);
+                if (RedData(apClass->funcs)[i]->shortName.hash == acShortNameHash)
+                    results.emplace(RedData(apClass->funcs)[i]->fullName.hash, RedData(apClass->funcs)[i]);
             }
         }
         else
         {
-            for (uint32_t i = 0; i < apClass->staticFuncs.size; ++i)
+            for (uint32_t i = 0; i < RedSize(apClass->staticFuncs); ++i)
             {
-                if (apClass->staticFuncs.entries[i]->shortName.hash == acShortNameHash)
-                    results.emplace(apClass->staticFuncs.entries[i]->fullName.hash, apClass->staticFuncs.entries[i]);
+                if (RedData(apClass->staticFuncs)[i]->shortName.hash == acShortNameHash)
+                    results.emplace(RedData(apClass->staticFuncs)[i]->fullName.hash, RedData(apClass->staticFuncs)[i]);
             }
 
             if (m_extendedFunctions.contains(apClass->name.hash))
@@ -305,12 +305,12 @@ std::map<uint64_t, RED4ext::CBaseFunction*> RTTIHelper::FindFunctions(RED4ext::C
 sol::function RTTIHelper::ResolveFunction(const std::string& acFuncName)
 {
     if (!m_pRtti)
-        return sol::nil;
+        return sol::lua_nil;
 
     const auto cFuncHash = RED4ext::FNV1a64(acFuncName.c_str());
 
     auto invokable = GetResolvedFunction(cFuncHash);
-    if (invokable != sol::nil)
+    if (invokable != sol::lua_nil)
         return invokable;
 
     const auto cIsFullName = acFuncName.find(';') != std::string::npos;
@@ -324,7 +324,7 @@ sol::function RTTIHelper::ResolveFunction(const std::string& acFuncName)
             pFunc = FindFunction(m_pGameInstanceType, cFuncHash);
 
             if (!pFunc)
-                return sol::nil;
+                return sol::lua_nil;
         }
 
         invokable = MakeInvokableFunction(pFunc);
@@ -339,7 +339,7 @@ sol::function RTTIHelper::ResolveFunction(const std::string& acFuncName)
             overloads = FindFunctions(m_pGameInstanceType, cFuncHash, false);
 
             if (overloads.empty())
-                return sol::nil;
+                return sol::lua_nil;
         }
 
         if (!s_cEnableOverloads || overloads.size() == 1)
@@ -357,7 +357,7 @@ sol::function RTTIHelper::ResolveFunction(const std::string& acFuncName)
 sol::function RTTIHelper::ResolveFunction(RED4ext::CClass* apClass, const std::string& acFuncName, bool aIsMember)
 {
     if (!m_pRtti)
-        return sol::nil;
+        return sol::lua_nil;
 
     if (apClass == nullptr)
         return ResolveFunction(acFuncName);
@@ -366,7 +366,7 @@ sol::function RTTIHelper::ResolveFunction(RED4ext::CClass* apClass, const std::s
     const auto cFuncHash = RED4ext::FNV1a64(acFuncName.c_str());
 
     auto invokable = GetResolvedFunction(cClassHash, cFuncHash, aIsMember);
-    if (invokable != sol::nil)
+    if (invokable != sol::lua_nil)
         return invokable;
 
     const auto cIsFullName = acFuncName.find(';') != std::string::npos;
@@ -376,7 +376,7 @@ sol::function RTTIHelper::ResolveFunction(RED4ext::CClass* apClass, const std::s
         const auto pFunc = FindFunction(apClass, cFuncHash);
 
         if (!pFunc)
-            return sol::nil;
+            return sol::lua_nil;
 
         invokable = MakeInvokableFunction(pFunc);
         AddResolvedFunction(cClassHash, cFuncHash, invokable, aIsMember);
@@ -392,7 +392,7 @@ sol::function RTTIHelper::ResolveFunction(RED4ext::CClass* apClass, const std::s
             overloads = FindFunctions(apClass, cFuncHash, !aIsMember);
 
             if (overloads.empty())
-                return sol::nil;
+                return sol::lua_nil;
         }
 
         if (!s_cEnableOverloads || overloads.size() == 1)
@@ -591,7 +591,7 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
     auto minArgs = 0u;
     auto maxArgs = 0u;
 
-    for (auto i = 0u; i < apFunc->params.size; ++i)
+    for (auto i = 0u; i < RedSize(apFunc->params); ++i)
     {
         const auto cpParam = apFunc->params[i];
 
@@ -628,9 +628,9 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
 
     auto pAllocator = TiltedPhoques::Allocator::Get();
     TiltedPhoques::Allocator::Set(&s_scratchMemory);
-    TiltedPhoques::Vector<RED4ext::CStackType> callArgs(apFunc->params.size);
-    TiltedPhoques::Vector<uint32_t> callArgToParam(apFunc->params.size);
-    TiltedPhoques::Vector<bool> ownedArgs(apFunc->params.size, false);
+    TiltedPhoques::Vector<RED4ext::CStackType> callArgs(RedSize(apFunc->params));
+    TiltedPhoques::Vector<uint32_t> callArgToParam(RedSize(apFunc->params));
+    TiltedPhoques::Vector<bool> ownedArgs(RedSize(apFunc->params), false);
     TiltedPhoques::Allocator::Set(pAllocator);
 
     RED4ext::CStackType result;
@@ -650,7 +650,7 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
             }
         });
 
-    for (auto i = 0u; i < apFunc->params.size; ++i)
+    for (auto i = 0u; i < RedSize(apFunc->params); ++i)
     {
         const auto cpParam = apFunc->params[i];
 
@@ -679,7 +679,7 @@ sol::variadic_results RTTIHelper::ExecuteFunction(
             ownedArgs[callArgOffset] = true;
 
             // But ToRED conversion is necessary for implementing required out params.
-            // callArgs[callArgOffset] = Scripting::ToRED(sol::nil, cpParam->type, &s_scratchMemory);
+            // callArgs[callArgOffset] = Scripting::ToRED(sol::lua_nil, cpParam->type, &s_scratchMemory);
         }
         else if (cpParam->flags.isOptional)
         {
@@ -776,7 +776,7 @@ bool RTTIHelper::ExecuteFunction(
     char code[MaxCodeSize];
     RED4ext::CStackFrame frame(nullptr, code);
 
-    for (uint32_t i = 0; i < apFunc->params.size; ++i)
+    for (uint32_t i = 0; i < RedSize(apFunc->params); ++i)
     {
         const auto& param = apFunc->params[i];
         const auto& arg = aArgs[i];
@@ -855,7 +855,7 @@ RED4ext::ScriptInstance RTTIHelper::NewInstance(RED4ext::CBaseRTTIType* apType, 
 sol::object RTTIHelper::NewInstance(RED4ext::CBaseRTTIType* apType, sol::optional<sol::table> aProps) const
 {
     if (!m_pRtti)
-        return sol::nil;
+        return sol::lua_nil;
 
     TiltedPhoques::StackAllocator<1 << 10> allocator;
 
@@ -885,7 +885,7 @@ sol::object RTTIHelper::NewHandle(RED4ext::CBaseRTTIType* apType, sol::optional<
     // types are declared with the ref<> modifier (which means Handle<>).
 
     if (!m_pRtti)
-        return sol::nil;
+        return sol::lua_nil;
 
     TiltedPhoques::StackAllocator<1 << 10> allocator;
 
@@ -932,12 +932,12 @@ sol::object RTTIHelper::GetProperty(RED4ext::CClass* apClass, RED4ext::ScriptIns
     aSuccess = false;
 
     if (!m_pRtti)
-        return sol::nil;
+        return sol::lua_nil;
 
     const auto* pProp = apClass->GetProperty(acPropName.c_str());
 
     if (!pProp)
-        return sol::nil;
+        return sol::lua_nil;
 
     auto lockedState = m_lua.Lock();
     RED4ext::CStackType stackType(pProp->type, pProp->GetValue<uintptr_t*>(apHandle));

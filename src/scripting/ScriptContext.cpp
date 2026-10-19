@@ -92,7 +92,7 @@ ScriptContext::ScriptContext(LuaSandbox& aLuaSandbox, const std::filesystem::pat
         if (std::holds_alternative<sol::function>(acDescription))
         {
             auto callback = std::get<sol::function>(acDescription);
-            if (callback != sol::nil)
+            if (callback != sol::lua_nil)
             {
                 return [&aLuaSandbox, loggerRef, callback]
                 {
@@ -191,9 +191,9 @@ ScriptContext::ScriptContext(LuaSandbox& aLuaSandbox, const std::filesystem::pat
         m_logger->error(e.what());
     }
 
-    env["registerForEvent"] = sol::nil;
-    env["registerHotkey"] = sol::nil;
-    env["registerInput"] = sol::nil;
+    env["registerForEvent"] = sol::lua_nil;
+    env["registerHotkey"] = sol::lua_nil;
+    env["registerInput"] = sol::lua_nil;
 }
 
 ScriptContext::ScriptContext(ScriptContext&& other) noexcept

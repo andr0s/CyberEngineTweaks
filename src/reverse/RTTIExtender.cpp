@@ -364,12 +364,12 @@ void WorldFunctionalTests_SpawnEntity(RED4ext::IScriptable*, RED4ext::CStackFram
     auto* pGameInstance = RED4ext::CGameEngine::Get()->framework->gameInstance;
     auto* pFunctionalType = pRTTI->GetType("FunctionalTestsGameSystem");
     auto* pFunctionalSystem = reinterpret_cast<FunctionalTestsGameSystem*>(pGameInstance->GetSystem(pFunctionalType));
-    uint32_t oldSize = pFunctionalSystem->spawner.pendingEntities.size;
+    uint32_t oldSize = RedSize(pFunctionalSystem->spawner.pendingEntities);
 
     ExecuteFunction("WorldFunctionalTests", "Internal_SpawnEntity", nullptr, entityPath, worldTransform, unknown);
 
     // if any entity was spawned
-    uint32_t newSize = pFunctionalSystem->spawner.pendingEntities.size;
+    uint32_t newSize = RedSize(pFunctionalSystem->spawner.pendingEntities);
     if (oldSize != newSize)
     {
         auto& pending = pFunctionalSystem->spawner.pendingEntities[newSize - 1];
@@ -589,7 +589,7 @@ void RTTIExtender::AddFunctionalTests()
     if (pClass != nullptr)
     {
         auto* pFunction = pClass->GetFunction("SpawnEntity");
-        if (pFunction != nullptr && pFunction->params.size == 0)
+        if (pFunction != nullptr && RedSize(pFunction->params) == 0)
         {
             RED4ext::CNamePool::Add("Internal_SpawnEntity");
             pFunction->fullName = pFunction->shortName = "Internal_SpawnEntity";
@@ -608,7 +608,7 @@ void RTTIExtender::AddFunctionalTests()
         }
 
         pFunction = pClass->GetFunction("DespawnEntity");
-        if (pFunction != nullptr && pFunction->params.size == 0)
+        if (pFunction != nullptr && RedSize(pFunction->params) == 0)
         {
             RED4ext::CNamePool::Add("Internal_DespawnEntity");
             pFunction->fullName = pFunction->shortName = "Internal_DespawnEntity";
@@ -643,9 +643,16 @@ static void AddToInventory(RED4ext::IScriptable*, RED4ext::CStackFrame* apFrame,
 
 void RTTIExtender::InitializeTypes()
 {
+#ifdef __APPLE__
+    // exEntitySpawner and the WorldFunctionalTests helpers drive the game's internal spawner through hand-mapped
+    // Windows structures and through addresses that are not verified for the macOS game. They are left out on macOS
+    // (mods get "class not found" instead of a crash); Codeware's DynamicEntitySystem is the supported spawner.
+    spdlog::get("scripting")->info("WorldFunctionalTests.SpawnEntity is not available on macOS; exEntitySpawner is provided on top of Codeware.");
+#else
     exEntitySpawnerSystem::InitializeType();
 
     AddFunctionalTests(); // This is kept for backward compatibility with mods
+#endif
 
     {
         auto pFunction = RED4ext::CGlobalFunction::Create("AddToInventory", "AddToInventory", AddToInventory);
@@ -661,6 +668,11 @@ void RTTIExtender::InitializeTypes()
 
 void RTTIExtender::InitializeSingletons()
 {
+#ifdef __APPLE__
+    // see InitializeTypes()
+    return;
+#endif
+
     exEntitySpawnerSystem::InitializeSingleton();
 
     CreateSingleton("WorldFunctionalTests");

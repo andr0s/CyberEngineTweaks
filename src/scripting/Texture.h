@@ -12,10 +12,18 @@ struct Texture
 
     void Release();
 
+#ifdef __APPLE__
+    ~Texture();
+#else
     ~Texture() = default;
+#endif
 
 private:
+#ifdef __APPLE__
+    void* m_texture{nullptr}; // id<MTLTexture>, retained
+#else
     Microsoft::WRL::ComPtr<ID3D12Resource> m_texture;
     D3D12_GPU_DESCRIPTOR_HANDLE m_handle;
+#endif
     ImVec2 m_size{};
 };
