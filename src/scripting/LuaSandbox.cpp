@@ -7,6 +7,10 @@
 #include <CET.h>
 #include <Utils.h>
 
+#ifdef __APPLE__
+#include <strings.h>
+#endif
+
 static constexpr const char* s_cVMGlobalObjectsWhitelist[] = {
     "_VERSION",
     "assert",
@@ -115,6 +119,16 @@ static constexpr const char* s_cPostInitializeModsProtectedList[] = {
 static constexpr const char* s_cGlobalExtraLibsWhitelist[] = {
     "ImGui",
 };
+
+#ifdef __APPLE__
+// The mod's own live database must not be opened, renamed or replaced through the io/os replacements. APFS is
+// case-insensitive by default, and "./db.sqlite3" or "DB.SQLITE3" name the same file as "db.sqlite3", so the resolved
+// path is checked (GetLuaPath returns it relative to the sandbox root, which is the current path at the call sites).
+static bool IsSandboxDatabase(const std::filesystem::path& acResolvedPath)
+{
+    return strcasecmp(acResolvedPath.c_str(), "db.sqlite3") == 0;
+}
+#endif
 
 LuaSandbox::LuaSandbox(Scripting* apScripting, const VKBindings& acVKBindings)
     : m_pScripting(apScripting)
@@ -551,7 +565,11 @@ void LuaSandbox::InitializeIOForSandbox(Sandbox& aSandbox, const sol::state& acp
 
             const auto path = GetLuaPath(acPath, cSBRootPath, false);
 
+#ifdef __APPLE__
+            auto result = cIO["lines"](path.empty() || IsSandboxDatabase(path) ? "" : UTF16ToUTF8(path.native()));
+#else
             auto result = cIO["lines"](path.empty() || acPath == "db.sqlite3" ? "" : UTF16ToUTF8(path.native()));
+#endif
 
             current_path(previousCurrentPath);
 
@@ -564,7 +582,11 @@ void LuaSandbox::InitializeIOForSandbox(Sandbox& aSandbox, const sol::state& acp
 
             const auto path = GetLuaPath(acPath, cSBRootPath, true);
 
+#ifdef __APPLE__
+            auto result = cIO["open"](path.empty() || IsSandboxDatabase(path) ? "" : UTF16ToUTF8(path.native()), acMode);
+#else
             auto result = cIO["open"](path.empty() || acPath == "db.sqlite3" ? "" : UTF16ToUTF8(path.native()), acMode);
+#endif
 
             current_path(previousCurrentPath);
 
@@ -588,7 +610,11 @@ void LuaSandbox::InitializeIOForSandbox(Sandbox& aSandbox, const sol::state& acp
             current_path(cSBRootPath);
 
             const auto oldPath = GetLuaPath(acOldPath, cSBRootPath, false);
+#ifdef __APPLE__
+            if (oldPath.empty() || IsSandboxDatabase(oldPath))
+#else
             if (oldPath.empty() || acOldPath == "db.sqlite3")
+#endif
             {
                 current_path(previousCurrentPath);
 
@@ -596,7 +622,11 @@ void LuaSandbox::InitializeIOForSandbox(Sandbox& aSandbox, const sol::state& acp
             }
 
             const auto newPath = GetLuaPath(acNewPath, cSBRootPath, true);
+#ifdef __APPLE__
+            if (newPath.empty() || exists(newPath) || IsSandboxDatabase(newPath))
+#else
             if (newPath.empty() || exists(newPath) || acNewPath == "db.sqlite3")
+#endif
             {
                 current_path(previousCurrentPath);
 
@@ -703,6 +733,16 @@ std::filesystem::path LuaSandbox::GetLuaPath(std::filesystem::path aFilePath, co
 {
     assert(!aFilePath.empty());
     assert(!aFilePath.is_absolute());
+
+#ifdef __APPLE__
+    // Mods are written on Windows and often use '\\' as a separator (require itself tries acPath + "\\init.lua"); on
+    // macOS it would be part of the file name.
+    {
+        auto str = aFilePath.string();
+        std::replace(str.begin(), str.end(), '\\', '/');
+        aFilePath = std::move(str);
+    }
+#endif
 
     if (aFilePath.empty() || aFilePath.is_absolute())
         return {};
