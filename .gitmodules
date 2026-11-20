@@ -7,7 +7,7 @@
 [submodule "vendor/RED4ext.SDK-macos"]
 	path = vendor/RED4ext.SDK-macos
 	url = https://github.com/andr0s/RED4ext.SDK-macos.git
-	branch = macos-fixes
+	branch = macos-2.5
 [submodule "vendor/luajit"]
 	path = vendor/luajit
 	url = https://github.com/openresty/luajit2.git
