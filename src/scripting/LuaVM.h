@@ -18,7 +18,7 @@ using TTDBIDCtorDerive = TDBID*(const TDBID*, TDBID*, const char*);
 using TRunningStateRun = bool(uintptr_t, uintptr_t);
 using TShutdownStateRun = bool(uintptr_t, uintptr_t);
 using TSetLoadingState = uintptr_t(uintptr_t, int);
-using TTweakDBLoad = uint64_t(uintptr_t, uintptr_t);
+using TTweakDBLoad = uint64_t(uintptr_t, bool, uintptr_t);
 using TTranslateBytecode = void(uintptr_t, uintptr_t);
 using TPlayerSpawned = uint64_t(uint64_t, uint64_t, uint64_t, uint64_t);
 
@@ -90,7 +90,7 @@ protected:
     static TDBID* HookTDBIDCtorDerive(TDBID* apBase, TDBID* apThis, const char* acpName);
 #endif
     static uintptr_t HookSetLoadingState(uintptr_t aThis, int aState);
-    static uint64_t HookTweakDBLoad(uintptr_t aThis, uintptr_t aParam);
+    static uint64_t HookTweakDBLoad(uintptr_t aThis, bool aUnk, uintptr_t aPath);
     static void HookTranslateBytecode(uintptr_t aBinder, uintptr_t aData);
     static uint64_t HookPlayerSpawned(uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4);
 
